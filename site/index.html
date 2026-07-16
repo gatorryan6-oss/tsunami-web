@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="app-id" content="tsunami-web">
+<title>Tsunami Simulator — Web</title>
+<style>
+  :root { color-scheme: dark; }
+  body {
+    margin: 0; background: #10151c; color: #dce3ec;
+    font-family: system-ui, sans-serif;
+    display: flex; flex-direction: column; align-items: center;
+    min-height: 100vh;
+  }
+  header { margin: 14px 0 6px; text-align: center; }
+  h1 { font-size: 1.25rem; margin: 0; font-weight: 600; }
+  header p { margin: 4px 0 0; font-size: 0.85rem; color: #8fa0b4; }
+  #controls {
+    display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+    justify-content: center; margin: 10px 0;
+  }
+  select, button {
+    background: #1c2530; color: #dce3ec; border: 1px solid #33414f;
+    border-radius: 6px; padding: 6px 12px; font-size: 0.9rem;
+    cursor: pointer;
+  }
+  button:hover, select:hover { border-color: #5a7189; }
+  canvas {
+    width: min(92vw, 660px); height: auto; aspect-ratio: 1;
+    image-rendering: auto; border: 1px solid #2a3542; border-radius: 4px;
+    background: #000;
+  }
+  #status {
+    font-family: ui-monospace, Consolas, monospace; font-size: 0.8rem;
+    color: #9fb3c8; margin: 8px 0 16px; min-height: 1.2em;
+  }
+  #fatal {
+    display: none; position: fixed; inset: 0; background: #200a0a;
+    color: #ffd7d7; font-size: 1.05rem; padding: 12vh 14vw; line-height: 1.5;
+    align-items: center; justify-content: center; text-align: center;
+    white-space: pre-wrap;
+  }
+  label { font-size: 0.85rem; color: #9fb3c8; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Tsunami Simulator</h1>
+  <p>WebGL2 port — physics parity with the desktop reference (tsunami-web)</p>
+</header>
+<div id="controls">
+  <label>Scenario <select id="scenario"></select></label>
+  <button id="run">Run</button>
+  <button id="reset">Reset</button>
+  <label>Speed <input id="speed" type="range" min="1" max="240" value="30" step="1">
+    <span id="speedval">x30</span></label>
+</div>
+<canvas id="view" width="513" height="513"></canvas>
+<div id="status">booting…</div>
+<div id="fatal"></div>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

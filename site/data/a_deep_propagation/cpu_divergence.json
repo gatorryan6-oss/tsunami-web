@@ -1,0 +1,33 @@
+[
+  {
+    "file": "h_t00060.npy",
+    "rel_linf": 1.1731430835693306e-06,
+    "rel_l2_wet": 1.2163292344574212e-07
+  },
+  {
+    "file": "h_t00120.npy",
+    "rel_linf": 1.3111599169304283e-06,
+    "rel_l2_wet": 1.9577086544746538e-07
+  },
+  {
+    "file": "h_t00180.npy",
+    "rel_linf": 1.5871585349174188e-06,
+    "rel_l2_wet": 3.374579445755336e-07
+  },
+  {
+    "file": "h_t00240.npy",
+    "rel_linf": 3.1743994346808657e-06,
+    "rel_l2_wet": 4.915999644650264e-07
+  },
+  {
+    "file": "h_t00300.npy",
+    "rel_linf": 7.368824825596284e-06,
+    "rel_l2_wet": 5.74288044484356e-07
+  },
+  {
+    "file": "inundation_final",
+    "extent_mismatch_cells": 0,
+    "extent_union_cells": 1,
+    "jaccard_distance": 0.0
+  }
+]
