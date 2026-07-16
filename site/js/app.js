@@ -4,7 +4,7 @@
 
 import { createContext, loadShaderSources, compileProgram, createQuad } from "./gl.js";
 import { Simulation } from "./sim.js";
-import { SCENARIOS, loadScenario, createSolverForScenario } from "./scenario.js";
+import { SCENARIOS, loadScenario, createSolverAtRest, fireScenarioSource } from "./scenario.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -42,23 +42,62 @@ async function main() {
     let solver = null;
     let sim = null;
     let scenarioData = null;
+    // The event is ARMED at load and fired on the first Run press, so the
+    // user sees the calm pre-event ocean first and the rupture/pulse/train
+    // reads as an event, not as "the map starts red".
+    let armed = false;
+    let pendingFire = false;
 
     async function setScenario(id) {
         $("status").textContent = `loading ${id} ...`;
+        pendingFire = false;           // cancels any not-yet-fired trigger
         if (solver) { solver.release(); solver = null; }
         scenarioData = await loadScenario(id);
-        ({ solver } = createSolverForScenario(gl, shaders, scenarioData,
-                                              { floatLinear }));
+        solver = createSolverAtRest(gl, shaders, scenarioData,
+                                    { floatLinear });
         sim = new Simulation(solver, parseFloat($("speed").value));
         sim.paused = true;
+        armed = true;
         $("run").textContent = "Run";
         // Debug/console handle (also used by automated checks).
-        window.__app = { solver, sim, scenarioData, draw };
+        window.__app = { solver, sim, scenarioData, draw,
+                         triggerEvent: () => triggerEvent(0) };
         $("status").textContent =
-            `${id} ready — ${solver.n}x${solver.n} grid, ` +
-            `dx ${solver.dx.toFixed(1)} m. Press Run.`;
+            `${id} ready — calm ocean, ${solver.n}x${solver.n} grid. ` +
+            `Run triggers the event.`;
         $("desc").textContent = scenarioData.params.description;
         sizeScaleBar();
+    }
+
+    function eventNarration(src) {
+        if (src.kind === "coseismic_dz") {
+            const f = src.fault || {};
+            return `Mw ${f.magnitude ?? "?"} rupture! The seafloor jumps — ` +
+                   `and the sea surface above copies it instantly.`;
+        }
+        if (src.kind === "wavemaker") {
+            return "A distant tsunami's wave train starts arriving at the " +
+                   "west (offshore) edge…";
+        }
+        return "Displacing the sea surface offshore…";
+    }
+
+    // Fire the armed event after a short beat (the solver clock stays at
+    // 0 — no stepping happens while we wait, so the source still lands at
+    // t = 0 exactly like the reference recipe).
+    function triggerEvent(delayMs = 900) {
+        armed = false;
+        pendingFire = true;
+        const mySolver = solver;
+        $("run").textContent = "…";
+        $("status").textContent = eventNarration(scenarioData.params.source);
+        setTimeout(() => {
+            if (!pendingFire || solver !== mySolver) return;
+            pendingFire = false;
+            fireScenarioSource(solver, scenarioData);
+            sim.paused = false;
+            $("run").textContent = "Pause";
+        }, delayMs);
     }
 
     // The scale bar: the canvas spans the whole domain, so pixels-per-
@@ -128,7 +167,8 @@ async function main() {
     sel.value = SCENARIOS[0].id;
     sel.addEventListener("change", () => setScenario(sel.value).catch(e => fatal(e.message)));
     $("run").addEventListener("click", () => {
-        if (!sim) return;
+        if (!sim || pendingFire) return;   // ignore clicks during the beat
+        if (armed) { triggerEvent(); return; }
         sim.paused = !sim.paused;
         $("run").textContent = sim.paused ? "Run" : "Pause";
     });

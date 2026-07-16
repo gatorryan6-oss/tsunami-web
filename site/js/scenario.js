@@ -49,12 +49,11 @@ export async function loadScenario(id, base = "data/") {
     return { id, params, bed: bed.data, dz: dz ? dz.data : null, dir };
 }
 
-/** Build a solver for a loaded scenario and fire its source, mirroring
- *  make_reference.py's order exactly: construct at rest on the PRE-event
- *  bed → enable tracking → apply source → reset tracking → snapshot.
- *  Returns { solver, postBed } (postBed = bed after dz, for land masks). */
-export function createSolverForScenario(gl, shaders, sc, opts = {}) {
-    const { params, bed, dz } = sc;
+/** Build a solver AT REST on the scenario's PRE-event bed (calm ocean,
+ *  no source fired yet, hazard tracking armed). The app shows this state
+ *  while the user decides when to trigger the event. */
+export function createSolverAtRest(gl, shaders, sc, opts = {}) {
+    const { params, bed } = sc;
     const solver = new GPUNonlinearSWESolver(
         gl, shaders, bed, params.grid.n, params.grid.dx_m,
         {
@@ -64,21 +63,38 @@ export function createSolverForScenario(gl, shaders, sc, opts = {}) {
             floatLinear: !!opts.floatLinear,
         });
     solver.enableMaxTracking();
+    return solver;
+}
 
-    const src = params.source;
+/** Fire a loaded scenario's source into an at-rest solver. Must be called
+ *  BEFORE any stepping (the solver clock at 0): the reference recipe puts
+ *  every source at t = 0, and installing a wavemaker onto a nonzero clock
+ *  would mid-cut its window (desktop landmine — never do it).
+ *  Returns { postBed } (bed after dz, for land masks). */
+export function fireScenarioSource(solver, sc) {
+    const src = sc.params.source;
     if (src.kind === "gaussian") {
         solver.addGaussian(src.x_m, src.y_m, src.amplitude_m, src.radius_m);
     } else if (src.kind === "wavemaker") {
         solver.setWavemaker(new WavemakerSpec(
             src.amplitude_m, src.period_s, src.n_waves, src.t_start_s));
     } else if (src.kind === "coseismic_dz") {
-        solver.applyCoseismic(dz);
+        solver.applyCoseismic(sc.dz);
     } else {
         throw new Error(`unknown source kind: ${src.kind}`);
     }
     solver.resetMaxTracking();
     solver.snapshotMax();
+    return { postBed: solver.b };
+}
 
-    // Post-event land mask basis (bed after the quake, or unchanged).
-    return { solver, postBed: solver.b };
+/** Build a solver for a loaded scenario and fire its source immediately,
+ *  mirroring make_reference.py's order exactly: construct at rest on the
+ *  PRE-event bed → enable tracking → apply source → reset tracking →
+ *  snapshot. This is the PARITY path — the harness steps right away, so
+ *  load and fire are one act here. Returns { solver, postBed }. */
+export function createSolverForScenario(gl, shaders, sc, opts = {}) {
+    const solver = createSolverAtRest(gl, shaders, sc, opts);
+    const { postBed } = fireScenarioSource(solver, sc);
+    return { solver, postBed };
 }

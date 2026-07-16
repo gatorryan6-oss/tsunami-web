@@ -82,6 +82,9 @@ something you're trying to do, the test is right until the human says otherwise.
 
 - `run.bat` — serves the static site on **port 5078** (one double-click), then
   open http://127.0.0.1:5078/.
+- `run-lan.bat` — same, but reachable from other devices on the local
+  network (Chromebook verification / classroom use); it prints this PC's
+  IPv4 address to use in the other device's browser.
 - `python verify.py` — starts the server if needed, hits it, checks the response.
 - Parity: open http://127.0.0.1:5078/parity.html — runs all three reference
   scenarios against the frozen data and reports PASS/FAIL per criterion.

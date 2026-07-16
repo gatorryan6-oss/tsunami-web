@@ -54,6 +54,28 @@ Entry format:
 
 (entries accumulate here, newest first)
 
+## 2026-07-16 — M4.5: event fires on Run, not on load (user-caught UX gap)
+- Shipped: scenarios now load AT REST on the pre-event bed (calm ocean) and
+  the source fires on the first Run press after a ~0.9 s narrated beat
+  ("Mw 9 rupture! The seafloor jumps — and the sea surface above copies it
+  instantly."). Before this, the near-field scenario sat parked at the
+  post-quake t=0 state — a screen already red before Run, which erased the
+  cause-and-effect teaching moment (user report). scenario.js split into
+  createSolverAtRest + fireScenarioSource; createSolverForScenario
+  composes both, so the PARITY path is byte-for-byte the same recipe —
+  re-ran /parity.html after the refactor: PASS, all 3 scenarios (25.3 s).
+- Also shipped: run-lan.bat — serves on 0.0.0.0:5078 for Chromebook/
+  classroom access over the local network (run.bat stays localhost-only).
+- Verified: before Run — 0 red pixels, anomaly exactly 0, status says the
+  event is armed; during the beat — narration + disabled button; after —
+  the uplift flash appears and the solver clock is still 0 (the source
+  lands at t = 0 exactly like the reference recipe; no stepping happens
+  during the wait, so the wavemaker window is never mid-cut).
+- Open bugs: none.
+- Decisions: the beat is WALL time only, never sim time — sources must
+  land on a zero clock (desktop landmine: installing a wavemaker whose
+  window is already open mid-cuts the train).
+
 ## 2026-07-16 — GATE 2 CLOSE-OUT (end of the Fable port session)
 
 ### Final verification results, verbatim
