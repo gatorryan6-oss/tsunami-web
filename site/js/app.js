@@ -57,6 +57,27 @@ async function main() {
         $("status").textContent =
             `${id} ready — ${solver.n}x${solver.n} grid, ` +
             `dx ${solver.dx.toFixed(1)} m. Press Run.`;
+        $("desc").textContent = scenarioData.params.description;
+        sizeScaleBar();
+    }
+
+    // The scale bar: the canvas spans the whole domain, so pixels-per-
+    // meter comes straight from its displayed width.
+    const SCALE_KM = 20;
+    function sizeScaleBar() {
+        if (!scenarioData) return;
+        const domainM = scenarioData.params.grid.domain_m;
+        const px = canvas.clientWidth * (SCALE_KM * 1000 / domainM);
+        document.querySelector("#scalebar .bar").style.width = `${px.toFixed(0)}px`;
+        $("scalelabel").textContent = `${SCALE_KM} km`;
+    }
+    window.addEventListener("resize", sizeScaleBar);
+
+    // Teachers think in minutes: "12 min 05 s", seconds-only below 1 min.
+    function fmtSimTime(s) {
+        const m = Math.floor(s / 60);
+        const sec = Math.floor(s % 60);
+        return m > 0 ? `${m} min ${String(sec).padStart(2, "0")} s` : `${sec} s`;
     }
 
     function draw() {
@@ -88,9 +109,9 @@ async function main() {
             }
             if (!sim.paused) {
                 $("status").textContent =
-                    `t = ${solver.timeS.toFixed(1)} s | ` +
-                    `${steps} substeps | dt ${(solver._dtCache ?? 0).toFixed(3)} s | ` +
-                    `${fpsShown} fps | speed x${sim.timeScale}`;
+                    `simulated time ${fmtSimTime(solver.timeS)} | ` +
+                    `speed x${sim.timeScale} | ${fpsShown} fps` +
+                    (steps >= 24 ? " | running below requested speed" : "");
             }
         }
         requestAnimationFrame(frame);

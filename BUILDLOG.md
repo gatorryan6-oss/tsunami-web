@@ -54,6 +54,26 @@ Entry format:
 
 (entries accumulate here, newest first)
 
+## 2026-07-16 — M4: teacher-facing minimum UI
+- Shipped: colorbar (CSS gradient sampled EXACTLY from display.frag's
+  anomaly ramp — keep-in-sync comment at both sites), 20 km distance scale
+  bar (sized from canvas clientWidth vs domain_m, resize-aware, verified
+  pixel-exact 110/110), sim clock in teacher units ("12 min 05 s"),
+  scenario description line from params.json, "running below requested
+  speed" honesty note when the 24-substep cap engages, footer links to the
+  parity + contract pages. Scenario picker / run/pause/reset / speed
+  already existed (M1 shell) — this completes the M4 list; nothing beyond it.
+- Verified: pause holds the clock, reset rebuilds the scenario at t=0,
+  120 synthetic frames at x30 gave 57.46 s sim vs 57.6 requested
+  (remainder banked, never stepped short), canvas fully painted.
+- Deferred: nothing.
+- Open bugs: none in the app. (Dev-tooling note: the embedded browser
+  pane's tab is hidden, so rAF is suspended there — UI loop verified by
+  driving frame() body directly; a real visible browser window runs it
+  normally.)
+- Decisions: hidden-tab rAF suspension is accepted as correct behavior
+  (sim pauses when not watched; 0.1 s wall-clamp prevents jumps on return).
+
 ## 2026-07-16 — M3: hazard accessor contract encoded as tests
 - Shipped: site/tests.html + site/js/contract.js — the JS mirror of the
   desktop tests/test_hazard.py §5 (the declared accessor contract) plus the

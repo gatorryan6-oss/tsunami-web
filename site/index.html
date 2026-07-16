@@ -33,8 +33,46 @@
   }
   #status {
     font-family: ui-monospace, Consolas, monospace; font-size: 0.8rem;
-    color: #9fb3c8; margin: 8px 0 16px; min-height: 1.2em;
+    color: #9fb3c8; margin: 8px 0 4px; min-height: 1.2em;
   }
+  #desc {
+    font-size: 0.82rem; color: #8fa0b4; max-width: min(92vw, 660px);
+    text-align: center; margin: 2px 0 10px; min-height: 2.2em;
+  }
+  /* Legend: colorbar + scale bar — the display read as science. */
+  #legend {
+    display: flex; gap: 26px; align-items: flex-end; flex-wrap: wrap;
+    justify-content: center; margin: 10px 0 4px;
+    width: min(92vw, 660px);
+  }
+  #colorbar { flex: 1 1 260px; }
+  #colorbar .bar {
+    height: 12px; border-radius: 3px; border: 1px solid #2a3542;
+    /* EXACTLY the display.frag anomaly ramp, sampled at a = -1, -0.5,
+       0-, 0+, +0.5, +1 (keep in sync with the shader). */
+    background: linear-gradient(to right,
+      #0033f2 0%, #0659b3 25%, #0d8073 49.8%,
+      #2673a6 50.2%, #935960 75%, #ff401a 100%);
+  }
+  #colorbar .labels, #scalebar .labels {
+    display: flex; justify-content: space-between;
+    font-size: 0.72rem; color: #9fb3c8; margin-top: 3px;
+    font-family: ui-monospace, Consolas, monospace;
+  }
+  #colorbar .title, #scalebar .title {
+    font-size: 0.75rem; color: #b7c6d6; margin-bottom: 4px;
+  }
+  #scalebar .bar {
+    height: 0; border-bottom: 3px solid #b7c6d6; position: relative;
+  }
+  #scalebar .bar::before, #scalebar .bar::after {
+    content: ""; position: absolute; bottom: -1px; width: 2px; height: 8px;
+    background: #b7c6d6;
+  }
+  #scalebar .bar::before { left: 0; }
+  #scalebar .bar::after { right: 0; }
+  footer { font-size: 0.75rem; color: #6d7f92; margin: 6px 0 18px; }
+  footer a { color: #7db8ed; }
   #fatal {
     display: none; position: fixed; inset: 0; background: #200a0a;
     color: #ffd7d7; font-size: 1.05rem; padding: 12vh 14vw; line-height: 1.5;
@@ -57,8 +95,26 @@
     <span id="speedval">x30</span></label>
 </div>
 <canvas id="view" width="513" height="513"></canvas>
+<div id="legend">
+  <div id="colorbar">
+    <div class="title">Sea-surface anomaly (m above/below normal)</div>
+    <div class="bar"></div>
+    <div class="labels"><span>−2 m</span><span>0</span><span>+2 m</span></div>
+  </div>
+  <div id="scalebar">
+    <div class="title">Distance</div>
+    <div class="bar" style="width:110px"></div>
+    <div class="labels"><span>0</span><span id="scalelabel">20 km</span></div>
+  </div>
+</div>
 <div id="status">booting…</div>
+<div id="desc"></div>
 <div id="fatal"></div>
+<footer>
+  Physics verified against the desktop reference:
+  <a href="parity.html">parity harness</a> ·
+  <a href="tests.html">accessor contract</a>
+</footer>
 <script type="module" src="js/app.js"></script>
 </body>
 </html>
