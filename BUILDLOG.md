@@ -54,6 +54,29 @@ Entry format:
 
 (entries accumulate here, newest first)
 
+## 2026-07-16 — M2: parity gate PASSES (all 3 scenarios, first run)
+- Shipped: site/parity.html + site/js/parity.js — loads each reference
+  scenario, steps headlessly with the exporter's exact rule (one stableDt()
+  per substep; snapshot at FIRST substep crossing t_requested), compares h
+  per snapshot + final inundation extent through getHazardFields().
+- Measured on this machine (Intel iGPU, Chromium-based browser pane),
+  browser vs frozen desktop-GPU reference:
+    a_deep_propagation:     L∞ 3.0e-6..7.6e-6, L2 3.9e-7..9.7e-7, extent 0/0
+    b_shelf_shoaling:       L∞ ≤1.1e-5, L2 ≤1.1e-6, extent 1/1,649 (J=0.0006)
+    c_nearfield_inundation: t=0 EXACTLY 0.0; L∞ ≤1.8e-5, L2 ≤4.8e-6,
+                            extent 4,916/4,916 EXACT (J=0)
+  Tolerances are 1e-3 / 1e-4 / 0.02 — headroom 50–300×. The browser sits in
+  the same noise band as the desktop's own CPU-vs-GPU divergence (worst
+  2.9e-5 / 4.3e-6), which is the definition of success in HARNESS.md.
+  Full 3-scenario run: 22.5 s (~14,400 substeps ≈ 1.6 ms/substep at 513²
+  including readbacks and JSON fetches).
+- Deferred: nothing new.
+- Open bugs: none.
+- Decisions: parity runs in-browser (real GPU — a Chromebook can verify
+  itself by opening /parity.html); results exposed at window.__PARITY__ for
+  automation. "npm run test:parity equivalent" = open /parity.html; no node
+  toolchain introduced (CONSTRAINTS: no build-step exotica).
+
 ## 2026-07-16 — M0+M1: scaffolding, walking skeleton, physics core ported
 - Shipped: kit scaffolding (CLAUDE.md, BUILDLOG, verify.py on port 5078,
   run.bat, settings hook, tests/test_invariants.py — 17 checks green);

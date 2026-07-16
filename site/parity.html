@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="app-id" content="tsunami-web">
+<title>Tsunami Simulator — Parity Harness</title>
+<style>
+  :root { color-scheme: dark; }
+  body {
+    margin: 0; padding: 24px; background: #10151c; color: #dce3ec;
+    font-family: system-ui, sans-serif; max-width: 900px; margin-inline: auto;
+  }
+  h1 { font-size: 1.2rem; }
+  #verdict {
+    font-size: 1.6rem; font-weight: 700; padding: 14px 20px; margin: 14px 0;
+    border-radius: 8px; background: #1c2530; text-align: center;
+  }
+  #verdict.pass { background: #123a1c; color: #7deda0; }
+  #verdict.fail { background: #451414; color: #ff9d9d; }
+  table {
+    border-collapse: collapse; width: 100%; margin: 10px 0 22px;
+    font-family: ui-monospace, Consolas, monospace; font-size: 0.82rem;
+  }
+  th, td { border: 1px solid #2a3542; padding: 5px 9px; text-align: right; }
+  th { background: #1a232e; }
+  td.ok { color: #7deda0; }
+  td.bad { color: #ff9d9d; font-weight: 700; }
+  caption { text-align: left; font-weight: 600; padding: 6px 0; }
+  #progress {
+    font-family: ui-monospace, Consolas, monospace; font-size: 0.8rem;
+    color: #9fb3c8; white-space: pre-wrap; min-height: 1.4em;
+  }
+  p.note { color: #8fa0b4; font-size: 0.85rem; }
+</style>
+</head>
+<body>
+<h1>Parity harness — browser vs frozen desktop reference</h1>
+<p class="note">
+  Tolerances (HARNESS.md): rel_L∞ ≤ 1e-3 (blowup detector, 1 mm floor),
+  rel_L2(wet) ≤ 1e-4 (the tight physics gate), extent Jaccard ≤ 0.02.
+  Reference: desktop GPU production path @ 36adb05. The desktop is
+  canonical — a failure here means the browser port is wrong.
+</p>
+<div id="verdict">running…</div>
+<div id="results"></div>
+<div id="progress">booting…</div>
+<canvas id="glcanvas" width="8" height="8" style="display:none"></canvas>
+<script type="module">
+import { runAllParity } from "./js/parity.js";
+
+const $ = (id) => document.getElementById(id);
+const progress = (text) => { $("progress").textContent = text; };
+
+function scenarioTable(r) {
+  const rows = r.snapshots.map(s => `
+    <tr>
+      <td>t=${s.tRequested}</td>
+      <td>${s.tActual.toFixed(2)} / ${s.tRefActual.toFixed(2)}</td>
+      <td class="${s.relLinf <= 1e-3 ? "ok" : "bad"}">${s.relLinf.toExponential(2)}</td>
+      <td class="${s.relL2Wet <= 1e-4 ? "ok" : "bad"}">${s.relL2Wet.toExponential(2)}</td>
+      <td>${s.wetCount}</td>
+    </tr>`).join("");
+  const e = r.extent;
+  return `
+  <table>
+    <caption>${r.id} — ${r.pass ? "PASS" : "FAIL"}</caption>
+    <tr><th>snapshot</th><th>t actual (web / ref)</th>
+        <th>rel_L∞ (≤1e-3)</th><th>rel_L2 wet (≤1e-4)</th><th>wet cells</th></tr>
+    ${rows}
+    <tr>
+      <td>extent</td>
+      <td>end t=${r.endT.toFixed(1)} s</td>
+      <td colspan="2" class="${e.pass ? "ok" : "bad"}">
+        Jaccard ${e.jaccard.toFixed(4)} (${e.mismatch}/${e.union} cells)</td>
+      <td>${e.flooded} vs ${e.refFlooded} ref</td>
+    </tr>
+  </table>`;
+}
+
+(async () => {
+  try {
+    const t0 = performance.now();
+    const summary = await runAllParity(
+      $("glcanvas"), progress,
+      (r) => { $("results").innerHTML += scenarioTable(r); });
+    const secs = ((performance.now() - t0) / 1000).toFixed(1);
+    const v = $("verdict");
+    v.textContent = summary.pass
+      ? `PASS — all 3 scenarios within tolerance (${secs} s)`
+      : "FAIL — see tables";
+    v.className = summary.pass ? "pass" : "fail";
+    progress(`done in ${secs} s`);
+    window.__PARITY__ = summary;
+  } catch (e) {
+    $("verdict").textContent = "ERROR: " + e.message;
+    $("verdict").className = "fail";
+    console.error(e);
+  }
+})();
+</script>
+</body>
+</html>
