@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="app-id" content="tsunami-web">
+<title>Tsunami Simulator — Accessor Contract Tests</title>
+<style>
+  :root { color-scheme: dark; }
+  body {
+    margin: 0; padding: 24px; background: #10151c; color: #dce3ec;
+    font-family: system-ui, sans-serif; max-width: 860px; margin-inline: auto;
+  }
+  h1 { font-size: 1.2rem; }
+  #verdict {
+    font-size: 1.4rem; font-weight: 700; padding: 12px 18px; margin: 12px 0;
+    border-radius: 8px; background: #1c2530; text-align: center;
+  }
+  #verdict.pass { background: #123a1c; color: #7deda0; }
+  #verdict.fail { background: #451414; color: #ff9d9d; }
+  ul { font-family: ui-monospace, Consolas, monospace; font-size: 0.85rem;
+       list-style: none; padding: 0; }
+  li { padding: 3px 0; }
+  li.ok::before { content: "PASS  "; color: #7deda0; font-weight: 700; }
+  li.bad::before { content: "FAIL  "; color: #ff9d9d; font-weight: 700; }
+  p.note { color: #8fa0b4; font-size: 0.85rem; }
+  a { color: #7db8ed; }
+</style>
+</head>
+<body>
+<h1>getHazardFields() contract — the interface the damage phase builds on</h1>
+<p class="note">JS mirror of the desktop tests/test_hazard.py section 5
+(the declared accessor contract) plus the analytic momentum pin.
+Also see the <a href="parity.html">physics parity harness</a>.</p>
+<div id="verdict">running…</div>
+<ul id="list"></ul>
+<canvas id="glcanvas" width="8" height="8" style="display:none"></canvas>
+<script type="module">
+import { createContext, loadShaderSources } from "./js/gl.js";
+import { runContractChecks } from "./js/contract.js";
+
+const $ = (id) => document.getElementById(id);
+(async () => {
+  try {
+    const { gl } = createContext($("glcanvas"));
+    const shaders = await loadShaderSources();
+    const result = await runContractChecks(gl, shaders);
+    for (const c of result.checks) {
+      const li = document.createElement("li");
+      li.className = c.ok ? "ok" : "bad";
+      li.textContent = c.name;
+      $("list").appendChild(li);
+    }
+    const v = $("verdict");
+    v.textContent = result.pass
+      ? `PASS — all ${result.checks.length} contract checks`
+      : "FAIL — see list";
+    v.className = result.pass ? "pass" : "fail";
+    window.__CONTRACT__ = result;
+  } catch (e) {
+    $("verdict").textContent = "ERROR: " + e.message;
+    $("verdict").className = "fail";
+    console.error(e);
+  }
+})();
+</script>
+</body>
+</html>

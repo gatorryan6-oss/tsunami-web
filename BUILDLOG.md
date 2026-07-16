@@ -54,6 +54,24 @@ Entry format:
 
 (entries accumulate here, newest first)
 
+## 2026-07-16 — M3: hazard accessor contract encoded as tests
+- Shipped: site/tests.html + site/js/contract.js — the JS mirror of the
+  desktop tests/test_hazard.py §5 (the declared accessor contract) plus the
+  §3 analytic momentum pin. 14/14 checks PASS on this machine: uniform-flow
+  speed 3.0000 m/s and momentum h*u² = 36.0000 exactly; running-max
+  property; four Float32Array(n²) fields; non-negativity; arrival sentinel
+  -1 + dry-cells-have-no-arrival; arrivalRange interval; extent = (depth >
+  0.1 m) & (bed > 0) exactly, land-only, 258 cells flooded on the test
+  beach. (getHazardFields()/inundationExtent themselves shipped in M1 and
+  already fed the M2 extent comparison — M3 is the contract-as-test.)
+- Deferred: nothing.
+- Open bugs: none.
+- Decisions: the desktop's "accessor equals raw solver reads" equivalence
+  check is omitted in JS — it holds by construction (hazard.js is the only
+  wrapper) and statically (test_invariants.py forbids other callers);
+  contract beach run extended 400→800 s because this test also asserts
+  FLOODING (measured onset ~500 s), not just arrival like the desktop's.
+
 ## 2026-07-16 — M2: parity gate PASSES (all 3 scenarios, first run)
 - Shipped: site/parity.html + site/js/parity.js — loads each reference
   scenario, steps headlessly with the exporter's exact rule (one stableDt()
