@@ -136,6 +136,13 @@ default ×30).
 2. GAPS.md item 1 (desktop repo): confirm the two GL extensions and run
    /parity.html + /tests.html on a REAL Chromebook — the whole harness
    runs in-browser precisely so the target machine can verify itself.
+   **2026-07-16 status: DEFERRED — no Chromebook on hand.** Deployment
+   (item 1) is the realistic route anyway: school Chromebooks can't reach
+   a home-LAN server; once the site is public, verification is "open the
+   URL." A phone/tablet on the local Wi-Fi is a strong interim proxy —
+   mobile GPUs (Mali/Adreno) are the same silicon class as budget
+   Chromebooks and exactly the fp16/mediump-risk hardware the harness
+   guards against (run-lan.bat prints the address to visit).
 3. After that, the natural phase 2 is the damage/casualty models consuming
    getHazardFields() (the contract is tested and frozen), or the 3D view
    (desktop render shaders are inventoried "translates directly").
