@@ -52,6 +52,32 @@ something you're trying to do, the test is right until the human says otherwise.
   desktop `port_package/reference/`, commit 36adb05). Never edited, never
   regenerated here.
 
+## Conventions adopted during the port (2026-07-16 Fable session)
+
+- **Row order, everywhere:** fields are flat row-major Float32Arrays with
+  j = 0 as the SOUTH row — which is also GL texture row 0, readPixels row
+  0, and the order of the JSON data files. There are NO flips anywhere in
+  the pipeline. (The desktop reference PNGs are flipped at save time for
+  viewing; the data is not.) If a display looks upside down, fix the
+  display, never the data path.
+- **`solver.readState()` reuses one buffer** (4.2 MB at 513²) — consume
+  immediately or copy. `readHazards()`/`readMomentum()` allocate fresh.
+- **ES modules, no bundler, no node.** New pages import from `site/js/`
+  directly; everything must keep working from `python -m http.server`.
+- **Automation handles:** the app exposes `window.__app`
+  ({solver, sim, scenarioData, draw}); the parity page sets
+  `window.__PARITY__`; the contract page sets `window.__CONTRACT__`.
+  Drive these from the console/tooling instead of adding test plumbing.
+- **The display colormap lives in two places on purpose** (display.frag
+  and the #colorbar CSS gradient in index.html) — keep-in-sync comments
+  mark both. It intentionally matches the desktop reference PNGs.
+- **Scenario setup order is frozen** (scenario.js mirrors
+  make_reference.py): construct at rest on the PRE-event bed → enable
+  tracking → apply source → reset tracking → snapshotMax. Reordering
+  breaks the arrival field and scenario (c)'s t=0 exactness.
+- **Sim speed honesty:** when the 24-substep cap engages, say so in the
+  UI ("running below requested speed") — never silently drop time.
+
 ## How to run
 
 - `run.bat` — serves the static site on **port 5078** (one double-click), then

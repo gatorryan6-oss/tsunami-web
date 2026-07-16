@@ -54,6 +54,110 @@ Entry format:
 
 (entries accumulate here, newest first)
 
+## 2026-07-16 — GATE 2 CLOSE-OUT (end of the Fable port session)
+
+### Final verification results, verbatim
+
+Parity harness (http://127.0.0.1:5078/parity.html, this machine's Intel
+iGPU, run at close-out — identical numbers to the M2 run, i.e. fully
+deterministic):
+
+```
+PASS — all 3 scenarios within tolerance (25.5 s)
+a_deep_propagation — PASS
+t=60    60.24 / 60.24     2.97e-6   3.92e-7   217497
+t=120   120.08 / 120.08   3.17e-6   6.06e-7   217497
+t=180   180.31 / 180.31   3.17e-6   7.15e-7   217497
+t=240   240.15 / 240.15   3.38e-6   8.49e-7   217497
+t=300   300.39 / 300.39   7.57e-6   9.68e-7   217497
+extent  end t=300.4 s     Jaccard 0.0000 (0/0 cells)      0 vs 0 ref
+b_shelf_shoaling — PASS
+t=400   400.26 / 400.26   4.83e-6   9.88e-7   217497
+t=900   900.23 / 900.23   4.13e-6   1.01e-6   217497
+t=1400  1400.33 / 1400.33  5.22e-6  1.04e-6   217498
+t=1900  1900.05 / 1900.05  1.10e-5  1.08e-6   218191
+t=2400  2400.17 / 2400.17  4.28e-6  1.12e-6   219179
+extent  end t=2400.2 s    Jaccard 0.0006 (1/1649 cells)   1649 vs 1648 ref
+c_nearfield_inundation — PASS
+t=0     0.00 / 0.00       0.00e+0   0.00e+0   217497
+t=300   300.26 / 300.26   3.46e-6   9.64e-7   217617
+t=900   900.11 / 900.11   5.12e-6   1.38e-6   218561
+t=1500  1500.23 / 1500.23  7.40e-6  2.63e-6   221488
+t=2400  2400.16 / 2400.16  1.82e-5  4.79e-6   222561
+extent  end t=3000.2 s    Jaccard 0.0000 (0/4916 cells)   4916 vs 4916 ref
+(columns: snapshot | t actual web/ref | rel_L∞ ≤1e-3 | rel_L2 wet ≤1e-4 | wet cells)
+```
+
+Accessor contract (http://127.0.0.1:5078/tests.html):
+`PASS — all 14 contract checks` (momentum pin 36.0000 exact, speed 3.0000).
+
+Kit verification:
+```
+PASS: http://127.0.0.1:5078/ returned 200 and all 2 expected markers.
+17 passed in 0.02s   (tests/test_invariants.py)
+```
+
+### Current state
+
+Phase 1 (WebGL2 port with verified physics parity) is COMPLETE: M0–M4 all
+shipped and committed (fc87069 → 56f06f3). The app runs at
+http://127.0.0.1:5078/ via run.bat: three reference scenarios as presets,
+run/pause/reset/speed, colorbar + 20 km scale bar, physics at 513² with
+~1.6–2.2 ms/substep on this Intel iGPU (×60–90 sim speed available;
+default ×30).
+
+### Exact next action (for the next session, any model)
+
+1. Ask the human: deploy to Cloudflare Pages now? The site/ folder IS the
+   deployable artifact (static, no build step). Point Pages at the repo,
+   root = site/. Nothing in the code needs changing.
+2. GAPS.md item 1 (desktop repo): confirm the two GL extensions and run
+   /parity.html + /tests.html on a REAL Chromebook — the whole harness
+   runs in-browser precisely so the target machine can verify itself.
+3. After that, the natural phase 2 is the damage/casualty models consuming
+   getHazardFields() (the contract is tested and frozen), or the 3D view
+   (desktop render shaders are inventoried "translates directly").
+
+### Open bugs, ranked
+
+- None known in the app.
+- (Tooling, not the app) The embedded dev browser pane runs the tab
+  hidden: rAF is suspended there and screenshots time out. Verify UI
+  changes by driving window.__app.sim.advance()/draw() directly, or use a
+  real browser window.
+
+### Standing rules accumulated this session
+
+The six in the header section of this file (desktop-canonical physics,
+verbatim shaders, fixed-dt banking, first-crossing sampling, port 5078,
+loud GL failure) — all unchanged, all enforced where a test can enforce
+them. No rule was added after M0; none was violated.
+
+### Traps — the three things most likely to mislead a model that wasn't here
+
+1. **The physics shaders look editable. They are not.** Any "cleanup,"
+   "optimization," or ES-idiom change to site/shaders/{fullscreen.vert,
+   swe_hll_step,swe_max_acc,swe_hll_splat}.frag breaks
+   tests/test_invariants.py, which diffs them line-for-line against
+   reference_shaders/ outside the marked ES header. That is by design:
+   physics changes go to the DESKTOP repo first, get re-verified there,
+   then re-freeze here. If the invariant test blocks you, the test is
+   right.
+2. **The dt machinery is a contract, not an implementation detail.**
+   stableDt() is a cached CFL readback (refresh every 30 calls, 0.9
+   margin) and the parity runner calls it once per SUBSTEP — the same
+   cadence the desktop exporter used. Simulation.advance banks fractional
+   remainders and never steps short; every substep in a frame uses the
+   SAME dt. "Fixing" any of this (fresher dt, running the remainder,
+   per-substep exact readback) will still look fine for minutes and then
+   either destabilize the scheme or silently change the dt sequence the
+   harness prices in.
+3. **solver.readState() returns a REUSED buffer.** Two calls = the second
+   overwrites the first's contents (deliberate: 4.2 MB/call at 513²).
+   Consume immediately or copy. The parity runner compares inside take()
+   for exactly this reason. readHazards()/readMomentum() allocate fresh
+   arrays and are safe to hold.
+
 ## 2026-07-16 — M4: teacher-facing minimum UI
 - Shipped: colorbar (CSS gradient sampled EXACTLY from display.frag's
   anomaly ramp — keep-in-sync comment at both sites), 20 km distance scale
