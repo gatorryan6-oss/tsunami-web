@@ -8,9 +8,12 @@ export function createContext(canvas) {
     const gl = canvas.getContext("webgl2", {
         antialias: false,
         preserveDrawingBuffer: false,
-        // The parity harness and solver never need the default framebuffer's
-        // depth/stencil; the 2D display doesn't either.
-        depth: false,
+        // depth: the 3D view (M8) depth-tests terrain/water/sky on the
+        // DEFAULT framebuffer, so the context needs a depth buffer.
+        // Physics is unaffected: the solver renders into its own FBOs,
+        // whose attachments this flag never touches; the 2D display pass
+        // simply doesn't enable DEPTH_TEST.
+        depth: true,
         stencil: false,
     });
     if (!gl) {
@@ -55,6 +58,11 @@ export async function loadShaderSources(base = "shaders/") {
         acc: "swe_max_acc.frag",
         displayVert: "display.vert",
         displayFrag: "display.frag",
+        // 3D view (M8) — display shaders, not physics.
+        skyVert: "sky.vert",
+        skyFrag: "sky.frag",
+        terrainVert: "terrain.vert",
+        terrainFrag: "terrain.frag",
     };
     const out = {};
     await Promise.all(Object.entries(names).map(async ([key, file]) => {

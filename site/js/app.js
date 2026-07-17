@@ -10,6 +10,8 @@ import { TownOverlay, computeInsetWindow, uvWindow } from "./overlay.js";
 import { getHazardFields } from "./hazard.js";
 import { assessTown, damageColorCss } from "./losses.js";
 import { assessCasualties, nearestRefuges, defaultEvacuationParams } from "./casualties.js";
+import { OrbitCamera } from "./camera.js";
+import { Scene3D } from "./scene3d.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -80,6 +82,25 @@ async function main() {
     let assessTick = 0;        // frame counter for the 30-frame cadence
     let daytime = true;        // day/night occupancy toggle
     const evacParams = defaultEvacuationParams();
+
+    // 3D view (M8): one camera for the session, one scene per grid shape.
+    // The scene holds no solver reference — render() takes the live solver
+    // each frame, so scenario swaps never leave it stale.
+    let view3d = false;
+    let scene3d = null;
+    const camera = new OrbitCamera();
+    const BACKING_2D = 513;    // the shipped 2D backing size — restored on toggle
+    function syncBacking3d() {
+        // 3D renders at display resolution (the 2D map stays at its exact
+        // 513² texel-for-texel backing). Cap for the iGPU's sake.
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        const w = Math.min(1600, Math.round((canvas.clientWidth || BACKING_2D) * dpr));
+        const h = Math.min(1600, Math.round((canvas.clientHeight || BACKING_2D) * dpr));
+        if (canvas.width !== w || canvas.height !== h) {
+            canvas.width = w;
+            canvas.height = h;
+        }
+    }
 
     // The overlay's building color: base albedo until damage exists, then
     // the desktop's amber->red tint by expected fraction.
@@ -164,11 +185,27 @@ async function main() {
             overlay.setWindow(win);
             insetUV = uvWindow(win, townGrid);
         }
+        // 3D scene: mesh + programs depend only on the grid shape (all
+        // three reference scenarios share 513² / 120 km); rebuild only if
+        // that ever changes. The scene reads the live solver each frame.
+        const g3 = scenarioData.params.grid;
+        if (scene3d && scene3d.n !== g3.n) { scene3d.release(); scene3d = null; }
+        if (!scene3d) scene3d = new Scene3D(gl, shaders, g3.n, g3.domain_m);
+        // Frame the camera on the town (the desktop's startup framing:
+        // ~2.6x the town radius, afternoon-lit from the southwest).
+        if (town) {
+            const fp = town.footprint();
+            camera.frame([fp.cx, fp.cy, 0],
+                         Math.max(9_000, Math.min(30_000, fp.r * 2.6)),
+                         -120, 40);
+        }
         // Debug/console handle (also used by automated checks).
         window.__app = { solver, sim, scenarioData, town, overlay, draw,
                          assessDamage, getDamageReport: () => damageReport,
                          getCasualtyReport: () => casualtyReport,
                          setDaytime: (d) => { daytime = d; },
+                         camera, setView3d: (v) => setView3d(v),
+                         getScene3d: () => scene3d,
                          triggerEvent: () => triggerEvent(0) };
         $("status").textContent =
             `${id} ready — calm ocean, ${solver.n}x${solver.n} grid. ` +
@@ -231,6 +268,12 @@ async function main() {
     }
 
     function draw() {
+        if (view3d && scene3d) {
+            syncBacking3d();
+            scene3d.render(solver, camera, canvas.width, canvas.height);
+            overlay.render(null);   // clear the 2D building rects/inset chrome
+            return;
+        }
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
         gl.viewport(0, 0, canvas.width, canvas.height);
         gl.useProgram(displayProg);
@@ -334,6 +377,48 @@ async function main() {
         } else {
             renderCasualtyLine();      // nothing fired yet: just the label
         }
+    });
+
+    // 2D map <-> 3D scene. One page, one running sim; only the render
+    // path changes. The 2D map keeps its exact 513² backing; 3D renders
+    // at display resolution.
+    function setView3d(on) {
+        view3d = !!on;
+        document.body.classList.toggle("view3d", view3d);
+        $("viewmode").textContent = view3d ? "2D map" : "3D view";
+        if (view3d) {
+            syncBacking3d();
+        } else {
+            canvas.width = BACKING_2D;
+            canvas.height = BACKING_2D;
+        }
+    }
+    $("viewmode").addEventListener("click", () => setView3d(!view3d));
+
+    // 3D mouse controls: left-drag orbit, right-drag pan, wheel zoom.
+    // All inert in 2D mode.
+    let dragButton = -1, dragX = 0, dragY = 0;
+    canvas.addEventListener("mousedown", (e) => {
+        if (!view3d) return;
+        dragButton = e.button;
+        dragX = e.clientX; dragY = e.clientY;
+        e.preventDefault();
+    });
+    window.addEventListener("mousemove", (e) => {
+        if (!view3d || dragButton < 0) return;
+        const dx = e.clientX - dragX, dy = e.clientY - dragY;
+        dragX = e.clientX; dragY = e.clientY;
+        if (dragButton === 2) camera.pan(dx, dy);
+        else camera.orbit(dx, dy);
+    });
+    window.addEventListener("mouseup", () => { dragButton = -1; });
+    canvas.addEventListener("wheel", (e) => {
+        if (!view3d) return;
+        e.preventDefault();
+        camera.zoom(-e.deltaY / 120);   // wheel up = closer
+    }, { passive: false });
+    canvas.addEventListener("contextmenu", (e) => {
+        if (view3d) e.preventDefault();  // right-drag pans, no menu
     });
 
     await setScenario(sel.value);

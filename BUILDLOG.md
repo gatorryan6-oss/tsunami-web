@@ -54,6 +54,51 @@ Entry format:
 
 (entries accumulate here, newest first)
 
+## 2026-07-17 — M8a: 3D scene skeleton (camera, sky, terrain, view toggle)
+- Shipped: the 3D view's foundation, ported from the desktop render stack
+  (SHADER_INVENTORY.md rated it all "translates directly" — it did).
+  `js/mat4.js` (column-major perspective/lookAt/multiply/invert — built in
+  WebGL's native layout, no transpose step), `js/camera.js` (OrbitCamera:
+  z-up, yaw/pitch/distance, left-drag orbit / right-drag pan / wheel zoom,
+  sliding near plane for depth precision), `shaders/sky.vert+frag`
+  (far-plane fullscreen pass, procedural gradient + sun disc/halo; the
+  sky_color function water.frag will duplicate in M8b — keep in sync),
+  `shaders/terrain.vert+frag` (vertex-texture-fetch heightfield lift with
+  the half-texel alignment; full material shader: elevation/slope
+  splatting, fbm detail noise, wet-sand band, cavity shading, concrete-
+  structure override, hazard-overlay branch ported but OFF), `js/scene3d.js`
+  (grid mesh 513² verts / 1.57M indices, terrain→sky passes, 1×1 zero
+  structure mask — NOT the desktop's bind-height fallback, which would
+  read land > 0.5 m as concrete). The scene reads the SOLVER's own
+  bedTexture as the heightfield: terrain is the physics' world by
+  construction (coseismic drop shows the frame it fires), no stale upload
+  path. app.js: `setView3d` toggle (button #viewmode), mouse controls
+  (inert in 2D), camera framed on the town (desktop's ~2.6×radius,
+  yaw −120°, pitch 40°), 3D renders at display resolution (dpr-capped)
+  while 2D keeps its exact 513² backing; legend hidden in 3D (a colorbar
+  and fixed scale bar describe the map, not a perspective scene).
+- Verified (in-browser, fresh modules): GL error 0; sky gradient up top,
+  sunlit earth-tone terrain below; orbit/zoom change the frame; ~0.1 ms/
+  draw at 1320² backing (iGPU, far below budget); mid-run 3D after firing
+  a source = no errors, reads the live bed. Toggle back to 2D restores
+  backing 513², Shade-3 calm ocean (98,163,214) exact, town overlay
+  painting. **Parity re-run on the depth-enabled context (the one shared-
+  context change, gl.js depth:true): scenario C IDENTICAL to baseline —
+  t=0 exactly 0.0, L∞ ≤1.82e-5, extent Jaccard 0.** invariants 18/18
+  (sky/terrain are display shaders, outside the frozen physics set),
+  verify.py PASS.
+- Deferred: the water surface (M8b — at rest the seabed shows through
+  where the sea will be, expected until then); town buildings in 3D
+  (M8c); touch controls (mouse-only for now; Chromebook trackpads emit
+  mouse events); hazard overlays in 3D (the terrain.frag branch is
+  plumbed, waiting on the overlay milestone).
+- Open bugs: none.
+- Decisions: 2D↔3D as a same-page toggle (user pick) — one sim, one set
+  of readouts, only the render path changes. Scene holds no solver
+  reference (render() takes the live solver each frame) so scenario swaps
+  can never leave it stale. SUN_DIR = (0.45, 0.35, 0.82), the desktop's
+  afternoon southwest sun.
+
 ## 2026-07-17 — Colormap follow-up: calm = light ocean blue (Shade 3)
 - The first pass (previous entry) made calm a near-white pale (#cfe3ec) —
   user found it washed-out (the sea read as fog; the tan land looked more
