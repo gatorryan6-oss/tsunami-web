@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "tsunami-web",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "5078", "--directory", "site", "--bind", "127.0.0.1"],
+      "port": 5078
+    }
+  ]
+}

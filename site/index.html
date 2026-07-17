@@ -26,11 +26,16 @@
     cursor: pointer;
   }
   button:hover, select:hover { border-color: #5a7189; }
-  canvas {
-    width: min(92vw, 660px); height: auto; aspect-ratio: 1;
-    image-rendering: auto; border: 1px solid #2a3542; border-radius: 4px;
-    background: #000;
+  #viewwrap {
+    position: relative;
+    width: min(92vw, 660px); aspect-ratio: 1;
   }
+  #viewwrap canvas {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    image-rendering: auto; border-radius: 4px;
+  }
+  #view { border: 1px solid #2a3542; background: #000; }
+  #overlay { pointer-events: none; border: 1px solid transparent; }
   #status {
     font-family: ui-monospace, Consolas, monospace; font-size: 0.8rem;
     color: #9fb3c8; margin: 8px 0 4px; min-height: 1.2em;
@@ -39,6 +44,12 @@
     font-size: 0.82rem; color: #8fa0b4; max-width: min(92vw, 660px);
     text-align: center; margin: 2px 0 10px; min-height: 2.2em;
   }
+  #town {
+    font-size: 0.82rem; color: #b7a77a; max-width: min(92vw, 660px);
+    text-align: center; margin: 0 0 6px; min-height: 1.2em;
+    font-family: ui-monospace, Consolas, monospace;
+  }
+  #town.warn { color: #e0a13d; }
   /* Legend: colorbar + scale bar — the display read as science. */
   #legend {
     display: flex; gap: 26px; align-items: flex-end; flex-wrap: wrap;
@@ -94,7 +105,10 @@
   <label>Speed <input id="speed" type="range" min="1" max="240" value="30" step="1">
     <span id="speedval">x30</span></label>
 </div>
-<canvas id="view" width="513" height="513"></canvas>
+<div id="viewwrap">
+  <canvas id="view" width="513" height="513"></canvas>
+  <canvas id="overlay"></canvas>
+</div>
 <div id="legend">
   <div id="colorbar">
     <div class="title">Sea-surface anomaly (m above/below normal)</div>
@@ -109,6 +123,7 @@
 </div>
 <div id="status">booting…</div>
 <div id="desc"></div>
+<div id="town"></div>
 <div id="fatal"></div>
 <footer>
   Physics verified against the desktop reference:

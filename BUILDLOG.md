@@ -54,6 +54,49 @@ Entry format:
 
 (entries accumulate here, newest first)
 
+## 2026-07-17 — M5: the town on the map (phase 2 begins)
+- Shipped: **town.json** (frozen canon, 69 KB) baked by the DESKTOP
+  generator (`port_package/make_town_data.py`, seed 1, desktop commit
+  881070d) on the shared scenario bed — the three reference beds are
+  bit-identical (verified at bake), so ONE town serves all three
+  scenarios: 850 buildings (6 critical), population 3,749, value $0.48B,
+  833/850 inside scenario c's frozen flood extent / 715 inside b's / a
+  touches nothing (the phase-2 teaching arc, confirmed in data before any
+  JS). Web side: `js/town.js` (loader with loud integrity checks —
+  type-resolution, finite coords, recount vs bake summary; Town accessors
+  mirroring the desktop API incl. `footprint()`), `js/overlay.js`
+  (2D overlay canvas: type-colored building rects on the main map +
+  "Town close-up" inset with a locator rectangle; critical facilities
+  ringed, drawn on top), display pass gains a UV window (`u_uv0/u_uv1`,
+  display.vert — free-form pass, not physics) so the inset re-draws the
+  SAME display program through a zoomed window: live water in the
+  close-up, zero readbacks. Town summary line in the UI; `__app` exposes
+  town + overlay. `tests/test_invariants.py` + town.json integrity check
+  (18 passed).
+- Verified: parity ALL 3 scenarios PASS (identical numbers to the M2
+  baseline — a: J=0, b: J=0.0006, c: J=0), contract 14/14, verify.py
+  PASS, invariants 18/18. In-browser: town line exact
+  ("850 buildings (6 critical) · population 3,749 · value $0.48B"),
+  overlay pixels confirmed on the main map (east coast, north — the
+  baked town location) and in the inset; scenario c driven to t=1608 s
+  in-pane: inset town core sampled saturated-red (deep floodwater over
+  the town) while the far-east mountains stayed dry earth tones.
+- Deferred: building rotation in the overlay (subpixel at these scales —
+  rects are axis-aligned); damage recoloring is M6 (`overlay.render`
+  already takes a `colorOf(k, building)` hook so M6 never edits the
+  renderer).
+- Open bugs: none. (Dev-environment note: hidden browser-pane tab
+  reports clientWidth 0 at boot — overlay falls back to the canvas
+  attribute size and self-heals on the fps cadence; real visible
+  browsers lay out before boot completes.)
+- Decisions: town is DATA not code (user-confirmed) — the desktop keeps
+  the generator, canon expected-value tests become possible (M6/M7 will
+  read the same cm-rounded town.json on both sides); texel-CENTER uv
+  mapping (`u = ((x-xmin)/dx + 0.5)/n`) is the ONE coordinate convention
+  for overlay + inset (half-texel misalignment is invisible full-domain
+  but ~18 px at inset zoom); inset lives top-left (deep ocean — never
+  covers the coast).
+
 ## 2026-07-17 — DEPLOYED: live on Cloudflare Pages
 - Shipped: **https://tsunami-web.pages.dev** — GitHub repo
   (gatorryan6-oss/tsunami-web, master) connected to Cloudflare Pages with

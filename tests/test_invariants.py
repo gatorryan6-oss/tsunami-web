@@ -152,3 +152,35 @@ def test_hazard_accessor_boundary():
         "Hazard accessor boundary violated — route through getHazardFields():\n  "
         + "\n  ".join(violations)
     )
+
+
+def test_town_data_integrity():
+    """site/data/town.json is frozen canon baked by the DESKTOP generator
+    (port_package/make_town_data.py, seed 1). The damage/casualty phase
+    assesses exactly these buildings, so corruption here becomes silently
+    wrong classroom numbers: parse it, resolve every type, demand the
+    civic kit, finite coordinates, and internal count consistency."""
+    import json
+    import math
+
+    path = os.path.join(SITE, "data", "town.json")
+    assert os.path.exists(path), "site/data/town.json missing (M5 data)"
+    t = json.loads(read(path))
+    assert t["format"] == 1, f"unknown town format {t['format']}"
+    types, bl, summary = t["types"], t["buildings"], t["summary"]
+    assert len(bl) == summary["buildings"], "building count != baked summary"
+    assert len(bl) >= 800, f"only {len(bl)} buildings — bake drifted?"
+    kinds = {}
+    for k, b in enumerate(bl):
+        assert b["t"] in types, f"building {k}: unknown type {b['t']!r}"
+        for key in ("x", "y", "gz", "h"):
+            assert math.isfinite(b[key]), f"building {k}: non-finite {key}"
+        kinds[b["t"]] = kinds.get(b["t"], 0) + 1
+    for kind, want in (("hospital", 1), ("school", 2),
+                       ("fire_station", 2), ("police", 1)):
+        assert kinds.get(kind, 0) >= want, (
+            f"civic kit incomplete: {kind} {kinds.get(kind, 0)}/{want}")
+    pop = sum(types[b["t"]]["occupancy_night"] for b in bl)
+    value = sum(types[b["t"]]["value_usd"] for b in bl)
+    assert pop == summary["population_night"], "population != baked summary"
+    assert value == summary["total_value_usd"], "value != baked summary"

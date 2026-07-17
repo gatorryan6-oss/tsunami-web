@@ -1,0 +1,102 @@
+// Town data: the frozen building list baked by the DESKTOP generator
+// (port_package/make_town_data.py, seed 1) on the shared scenario bed —
+// data-not-code, the same philosophy as terrain and Okada. The three
+// reference scenarios share one bit-identical bed (verified at bake time),
+// so ONE town serves all three; the damage/casualty milestones assess
+// exactly these buildings, and the desktop can compute canonical expected
+// numbers on the identical (cm-rounded) coordinates for the contract tests.
+//
+// This module is data + accessors only. No GL, no hazard reads.
+
+export class Town {
+    constructor(buildings, types, provenance, summary) {
+        this.buildings = buildings;   // [{t, x, y, gz, h, rot, type}]
+        this.types = types;           // name -> type record (value_usd, ...)
+        this.provenance = provenance;
+        this.baked = summary;         // the bake-time summary block
+    }
+
+    /** Census population — people sleep where they live (night occupancy). */
+    get population() {
+        return this.buildings.reduce(
+            (s, b) => s + b.type.occupancy_night, 0);
+    }
+
+    peoplePresent(daytime) {
+        return this.buildings.reduce(
+            (s, b) => s + (daytime ? b.type.occupancy_day
+                                   : b.type.occupancy_night), 0);
+    }
+
+    get totalValue() {
+        return this.buildings.reduce((s, b) => s + b.type.value_usd, 0);
+    }
+
+    get criticalCount() {
+        return this.buildings.reduce(
+            (s, b) => s + (b.type.critical ? 1 : 0), 0);
+    }
+
+    summary() {
+        return `${this.buildings.length} buildings ` +
+               `(${this.criticalCount} critical) · ` +
+               `population ${this.population.toLocaleString("en-US")} · ` +
+               `value $${(this.totalValue / 1e9).toFixed(2)}B`;
+    }
+
+    /** {cx, cy, r} of the built-up core: MEDIAN center + 90th-percentile
+     *  radius — robust to the far-flung rural homes, so a view framed on
+     *  this sees the town, not an empty box stretched to outliers
+     *  (mirror of the desktop Town.footprint()). */
+    footprint() {
+        const xs = this.buildings.map(b => b.x).sort((a, b) => a - b);
+        const ys = this.buildings.map(b => b.y).sort((a, b) => a - b);
+        const med = (arr) => arr[(arr.length - 1) >> 1];
+        const cx = med(xs), cy = med(ys);
+        const d = this.buildings
+            .map(b => Math.hypot(b.x - cx, b.y - cy))
+            .sort((a, b) => a - b);
+        const r = d[Math.min(d.length - 1, Math.floor(0.90 * d.length))];
+        return { cx, cy, r };
+    }
+}
+
+/** Fetch + validate town.json. Every check here fails LOUD: a truncated
+ *  download or a type that doesn't resolve would otherwise surface later
+ *  as silently-wrong damage numbers. */
+export async function loadTown(url = "data/town.json") {
+    const resp = await fetch(url);
+    if (!resp.ok) {
+        throw new Error(`Failed to fetch ${url}: HTTP ${resp.status}`);
+    }
+    const raw = await resp.json();
+    if (raw.format !== 1) {
+        throw new Error(`${url}: unknown town format ${raw.format}`);
+    }
+    const types = raw.types;
+    const buildings = raw.buildings.map((b, k) => {
+        const type = types[b.t];
+        if (!type) {
+            throw new Error(`${url}: building ${k} has unknown type "${b.t}"`);
+        }
+        for (const key of ["x", "y", "gz", "h"]) {
+            if (!Number.isFinite(b[key])) {
+                throw new Error(`${url}: building ${k} has non-finite ${key}`);
+            }
+        }
+        return { ...b, type };
+    });
+    const town = new Town(buildings, types, raw.provenance, raw.summary);
+    // Internal consistency vs the bake-time summary — corruption tripwire.
+    const s = raw.summary;
+    if (buildings.length !== s.buildings) {
+        throw new Error(`${url}: ${buildings.length} buildings but the bake ` +
+                        `recorded ${s.buildings} — truncated download?`);
+    }
+    if (town.population !== s.population_night ||
+        town.totalValue !== s.total_value_usd) {
+        throw new Error(`${url}: recomputed population/value disagree with ` +
+                        `the bake-time summary — corrupt data`);
+    }
+    return town;
+}
