@@ -57,6 +57,8 @@ export class Scene3D {
                                           shaders.terrainFrag, "terrain3d");
         this.skyProg = compileProgram(gl, shaders.skyVert,
                                       shaders.skyFrag, "sky3d");
+        this.waterProg = compileProgram(gl, shaders.waterVert,
+                                        shaders.waterFrag, "water3d");
 
         // Terrain mesh: one vertex per heightfield texel.
         const { positions, indices } = makeGridMesh(n - 1, sizeM);
@@ -115,6 +117,27 @@ export class Scene3D {
         const su = (name) => gl.getUniformLocation(this.skyProg, name);
         this._s = { invVp: su("u_inv_vp"), camPos: su("u_camera_pos"),
                     sun: su("u_sun_dir") };
+
+        // One-time water uniforms. The water mesh IS the terrain mesh (same
+        // grid, same VAO — a WebGL2 VAO is program-independent); only the
+        // vertex shader's lift differs. Display-only exaggeration knobs are
+        // the desktop's: anomaly x8 shallow -> x60 deep, tilt x700 (the
+        // terrain itself stays 1:1 — honest-display rule).
+        gl.useProgram(this.waterProg);
+        const wu = (name) => gl.getUniformLocation(this.waterProg, name);
+        this._w = {
+            view: wu("u_view"), proj: wu("u_proj"), sun: wu("u_sun_dir"),
+            camPos: wu("u_camera_pos"), time: wu("u_time"),
+        };
+        gl.uniform1i(wu("u_height"), 0);
+        gl.uniform1i(wu("u_water"), 1);
+        gl.uniform1i(wu("u_structure"), 2);
+        gl.uniform2f(wu("u_origin"), -sizeM / 2, -sizeM / 2);
+        gl.uniform1f(wu("u_size"), sizeM);
+        gl.uniform1f(wu("u_texn"), n);
+        gl.uniform1f(wu("u_exagg_shallow"), 8.0);
+        gl.uniform1f(wu("u_exagg_deep"), 60.0);
+        gl.uniform1f(wu("u_slope_boost"), 700.0);
         gl.useProgram(null);
     }
 
@@ -163,6 +186,33 @@ export class Scene3D {
         gl.bindVertexArray(null);
         gl.depthFunc(gl.LESS);
 
+        // Water LAST (desktop order: terrain → sky → water): a translucent
+        // surface alpha-blends over whatever is behind it — terrain below
+        // sea level, or sky where a tall exaggerated crest crosses the
+        // horizon line. Same grid VAO; the state texture (R=h, G=hu, B=hv)
+        // is the live solver state, zero copies. Wall clock drives the
+        // ripples/foam animation (the desktop app's clock runs
+        // continuously too); wrapped at 3600 s for float32 precision, with
+        // the shader's fade at the wrap.
+        gl.useProgram(this.waterProg);
+        gl.uniformMatrix4fv(this._w.view, false, view);
+        gl.uniformMatrix4fv(this._w.proj, false, proj);
+        gl.uniform3f(this._w.sun, sunDir[0], sunDir[1], sunDir[2]);
+        gl.uniform3f(this._w.camPos, cp[0], cp[1], cp[2]);
+        gl.uniform1f(this._w.time, (performance.now() / 1000) % 3600);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, solver.bedTexture);
+        gl.activeTexture(gl.TEXTURE1);
+        gl.bindTexture(gl.TEXTURE_2D, solver.stateTexture);
+        gl.activeTexture(gl.TEXTURE2);
+        gl.bindTexture(gl.TEXTURE_2D, this.zeroTex);
+        gl.enable(gl.BLEND);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+        gl.bindVertexArray(this.vao);
+        gl.drawElements(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_INT, 0);
+        gl.bindVertexArray(null);
+        gl.disable(gl.BLEND);
+
         gl.disable(gl.DEPTH_TEST);   // leave GL how the 2D path expects it
         gl.useProgram(null);
     }
@@ -175,6 +225,7 @@ export class Scene3D {
         gl.deleteTexture(this.zeroTex);
         gl.deleteProgram(this.terrainProg);
         gl.deleteProgram(this.skyProg);
+        gl.deleteProgram(this.waterProg);
         gl.deleteBuffer(this.quad.vbo);
         gl.deleteVertexArray(this.quad.vao);
     }

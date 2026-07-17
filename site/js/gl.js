@@ -63,6 +63,8 @@ export async function loadShaderSources(base = "shaders/") {
         skyFrag: "sky.frag",
         terrainVert: "terrain.vert",
         terrainFrag: "terrain.frag",
+        waterVert: "water.vert",
+        waterFrag: "water.frag",
     };
     const out = {};
     await Promise.all(Object.entries(names).map(async ([key, file]) => {

@@ -54,6 +54,45 @@ Entry format:
 
 (entries accumulate here, newest first)
 
+## 2026-07-17 — M8b: the living water (sea-surface mesh, Fresnel, foam)
+- Shipped: `shaders/water.vert+frag`, faithful ports of the desktop
+  originals. water.vert: the sea surface as a second displaced mesh —
+  surface = bed + h, with DISPLAY-ONLY exaggeration of the anomaly
+  (x8 shallow → x60 deep, the desktop's honest-display knobs; terrain
+  stays 1:1), clamped never below the seabed, dry vertices tucked under
+  the terrain. water.frag: Schlick Fresnel between the REFLECTED
+  procedural sky (sky_color duplicated from sky.frag — the KEEP IN SYNC
+  pair now exists in this repo too) and per-channel absorption (red dies
+  in meters, blue last — why shallows are turquoise); animated ripple
+  detail fading with camera distance and at the 3600 s time-wrap; foam
+  driven by the SIMULATION state (Froude from G=hu/B=hv, thin fast run-up
+  sheets, crest curvature — the state texture the solver already
+  maintains, zero copies); the desktop's `1.0 - smoothstep` web-port note
+  preserved (reversed-edge smoothstep is undefined by spec). scene3d.js:
+  water program on the SAME grid VAO as the terrain (WebGL2 VAOs are
+  program-independent — one mesh, two lifts), drawn LAST in the desktop's
+  order (terrain → sky → water) so the translucent surface blends over
+  terrain AND over sky at a tall crest's silhouette; structure mask = the
+  scene's 1×1 zero texture (curvature foam fully active — correct with no
+  walls); u_time = wall clock % 3600 (ripples live even when paused, like
+  the desktop's continuously-running app).
+- Verified (in-browser, fresh modules on the live context): compiles
+  clean, GL error 0 throughout. Calm sea renders as WATER (teal/navy
+  Fresnel surface at z=0) where M8a showed bare seabed. Scenario C fired
+  and stepped to t=1500 s: the flood covers the coastal plain (182/306
+  sample grid = water), foam at active edges. A fixed shoreline probe
+  pixel tracks the event — dry sand at calm/t200, changing at t600,
+  water-teal at t1200: the 3D sea follows the physics point-for-point.
+  2.28 ms/render at 900² backing (iGPU) — 60 fps headroom alongside the
+  solver. invariants 18/18, verify.py PASS. No physics or shared-context
+  changes this milestone (gl.js only gained two loader entries), so
+  parity needs no re-run; the M8a depth-context parity stands.
+- Deferred: town buildings in 3D (M8c, next); hazard overlays in 3D.
+- Open bugs: none.
+- Decisions: water mesh reuses the terrain VAO (one grid, two vertex
+  lifts); wall-clock ripples (display liveliness ≠ sim time — the foam
+  PATTERN animates but foam PLACEMENT is pure sim state).
+
 ## 2026-07-17 — M8a: 3D scene skeleton (camera, sky, terrain, view toggle)
 - Shipped: the 3D view's foundation, ported from the desktop render stack
   (SHADER_INVENTORY.md rated it all "translates directly" — it did).
