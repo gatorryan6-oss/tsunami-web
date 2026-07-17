@@ -54,6 +54,35 @@ Entry format:
 
 (entries accumulate here, newest first)
 
+## 2026-07-17 — Fix: false-anomaly checkerboard in the town close-up (user-caught)
+- Symptom: the zoomed town-inset ocean showed a static red/blue/teal
+  checkerboard (user asked "are those waves?" — no) that never responded
+  to the actual tsunami. It was a RENDERING artifact, not physics.
+- Root cause: the display reconstructs the sea surface as `(bed + h)` and
+  the anomaly as `(bed + h) - max(bed, 0)`. At rest h = -bed exactly, so
+  the two cancel to a flat 0 — but ONLY if bed and h are sampled the same
+  way. `bedTexture` was created NEAREST while the state (h) texture is
+  LINEAR (OES_texture_float_linear present on this iGPU). Under a NEAREST
+  bed and a LINEAR h, the reconstruction is wrong wherever the seabed
+  slopes (up to the per-cell bathymetry step, ~2 m near shore → the full
+  ±2 m display range). Invisible at 1x (sample points near texel centers);
+  the ~25x inset zoom magnified it into vivid squares. Static because it
+  depends only on the (fixed) bed, not the water — hence "never changes."
+- Fix (solver.js): create `bedTexture` with the SAME display filter as the
+  state textures (LINEAR when floatLinear, else NEAREST). One line + a
+  comment explaining the cancellation contract. Display-only: every
+  physics read of `u_bed` uses `texelFetch`, which ignores filtering.
+- Verified: live GL test — deep-ocean inset pixels went from swinging
+  `11,117,132 ↔ 88,103,133` (checkerboard) to uniform calm `38,115,166`,
+  with only a genuine 1-cell transition at the real shoreline. Parity on
+  scenario C (freshly-imported edited solver, most-sensitive coseismic +
+  inundation case): IDENTICAL to the M2 baseline — t=0 exactly 0.0, L∞
+  ≤1.82e-5, extent Jaccard 0 (exact), all snapshots pass. invariants
+  18/18, verify.py PASS. Physics bit-identical by construction.
+- Decision: bed and state display filters must always match — noted at the
+  code site. The fix also slightly smooths the main-view terrain shading
+  (LINEAR bed), a cosmetic improvement with no downside.
+
 ## 2026-07-17 — M7: casualties + day/night (Phase 2 complete)
 - Shipped: `js/casualties.js` — faithful port of the desktop
   `core/damage/casualties.py`. Same fatality lognormal in depth with the

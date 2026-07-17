@@ -45,18 +45,27 @@ export class GPUNonlinearSWESolver {
         this.b = new Float32Array(bed);           // CPU master copy
         this._floatLinear = floatLinear;
 
+        // LINEAR on bed + state serves the DISPLAY path only (both physics
+        // reads use texelFetch, which is filter-independent). The bed and
+        // state textures MUST use the SAME display filter: the display
+        // reconstructs the sea surface as (bed + h), and at rest h = -bed
+        // exactly, so the two cancel to a flat 0 only if interpolated the
+        // same way. A NEAREST bed under a LINEAR h makes that reconstruction
+        // wrong wherever the seabed slopes — a false anomaly checkerboard
+        // that the town close-up (a ~25x zoom) magnifies into vivid
+        // red/blue squares. Without OES_texture_float_linear, both fall
+        // back to NEAREST (blocky but still consistent → surface exactly 0).
+        const displayFilter = floatLinear ? gl.LINEAR : gl.NEAREST;
+
         // Bed texture (the solver's own copy).
-        this.bedTexture = this._makeTexture1(this.b, gl.NEAREST);
+        this.bedTexture = this._makeTexture1(this.b, displayFilter);
 
         // Rotating state set (R=h, G=hu, B=hv), initialized at rest.
         const init = new Float32Array(n * n * 4);
         for (let i = 0; i < n * n; i++) {
             init[i * 4] = Math.max(-this.b[i], 0.0);
         }
-        // LINEAR on the state textures serves the DISPLAY path only
-        // (texelFetch in the physics shaders is filter-independent);
-        // without OES_texture_float_linear it must be NEAREST.
-        const stateFilter = floatLinear ? gl.LINEAR : gl.NEAREST;
+        const stateFilter = displayFilter;
         this._state = [];
         this._fbos = [];
         for (let k = 0; k < 3; k++) {
