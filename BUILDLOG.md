@@ -54,6 +54,24 @@ Entry format:
 
 (entries accumulate here, newest first)
 
+## 2026-07-17 — DEPLOYED: live on Cloudflare Pages
+- Shipped: **https://tsunami-web.pages.dev** — GitHub repo
+  (gatorryan6-oss/tsunami-web, master) connected to Cloudflare Pages with
+  auto-deploy on every push. Settings: build command empty, output
+  directory `site`. No code changes were needed to deploy.
+- Verified against the LIVE site (2026-07-17): /parity.html → PASS all 3
+  scenarios within tolerance (28.0 s); /tests.html → PASS all 14 contract
+  checks. The public site reproduces the desktop physics, full stop.
+- Note: Pages "pretty URLs" 308-redirect /parity.html → /parity and
+  /tests.html → /tests. Browsers follow this transparently; both forms
+  work. Plain curl needs -L or the extensionless form.
+- Chromebook verification (GAPS #1) is now trivially available to anyone:
+  open https://tsunami-web.pages.dev/parity.html on the target machine and
+  look for the green PASS banner. Still pending actual Chromebook hardware.
+- Decisions: master = production branch; every future push to master
+  deploys automatically (~40 MB data re-uploads are deduplicated by Pages,
+  so pushes stay fast).
+
 ## 2026-07-16 — M4.5: event fires on Run, not on load (user-caught UX gap)
 - Shipped: scenarios now load AT REST on the pre-event bed (calm ocean) and
   the source fires on the first Run press after a ~0.9 s narrated beat
