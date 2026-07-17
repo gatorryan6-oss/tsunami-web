@@ -54,6 +54,29 @@ Entry format:
 
 (entries accumulate here, newest first)
 
+## 2026-07-17 — Colormap follow-up: calm = light ocean blue (Shade 3)
+- The first pass (previous entry) made calm a near-white pale (#cfe3ec) —
+  user found it washed-out (the sea read as fog; the tan land looked more
+  colored than the water). Refined to a clear LIGHT OCEAN BLUE at zero so
+  the resting sea plainly reads as water while staying distinctly lighter
+  than the drawdown side (so it can't read as a negative anomaly).
+- Final ramp (user pick "Shade 3"), display.frag `anomalyColor()` +
+  #colorbar in sync: −2 m #0a3161 (deep navy) → −1 m #245f9c → 0 #62a3d6
+  (light ocean blue, calm) → +1 m #ee9a4d (amber) → +2 m #c62f1f (red).
+  Verified: calm renders exactly (98,163,214); legend matches; physics
+  untouched (display-only); invariants 18/18, verify.py PASS.
+- **DEFERRED DECISION — potential polarity flip.** Current polarity is the
+  standard sea-surface-height / tsunami convention: warm = positive
+  (crest, the hazard), cool = negative (drawdown). The user asked about
+  FLIPPING it (red = negative drawdown, blue = positive crest) to
+  dramatize the receding-sea warning sign. Held for now (kept the
+  convention — it matches NOAA/altimetry maps, keeps "red crest → red
+  damage" consistent with the damage/hazard overlays, and warm = more-
+  intense across the future depth/speed/momentum instruments). If we DO
+  flip later: invert the stop order in `anomalyColor()`, invert the
+  #colorbar gradient, and swap the −2 m / +2 m legend labels — all three
+  together. Revisit when building the hazard-overlay suite.
+
 ## 2026-07-17 — Colormap: calm sea no longer reads as "below zero" (user-caught)
 - Symptom: the resting ocean was colored a mid-blue (#2673a6) nearly
   identical to the −1 m drawdown blue (#0659b2), so calm water read as a

@@ -16,14 +16,19 @@ out vec4 f_color;
 
 // Diverging sea-surface-anomaly ramp, a in [-1, 1] (a = anomaly/range).
 // Five stops — KEEP IN SYNC with the #colorbar gradient in index.html:
-//   -1 deep navy (drawdown)  -0.5 blue  0 pale sea (CALM)
+//   -1 deep navy (drawdown)  -0.5 blue  0 light ocean blue (CALM)
 //   +0.5 amber  +1 red (crest).
+// Polarity: warm = positive (crest, the hazard), cool = negative
+// (drawdown). This matches the standard sea-surface-height / tsunami
+// convention. A future option is to FLIP it to dramatize the receding-sea
+// warning — logged in BUILDLOG (2026-07-17). If flipped, invert here AND
+// the #colorbar gradient AND swap the -2 m / +2 m legend labels together.
 vec3 anomalyColor(float a) {
-    vec3 c0 = vec3(0.031, 0.188, 0.420);  // -1.0  (-range, deep drawdown)
-    vec3 c1 = vec3(0.290, 0.565, 0.761);  // -0.5
-    vec3 c2 = vec3(0.812, 0.890, 0.925);  //  0.0  calm sea
-    vec3 c3 = vec3(0.937, 0.604, 0.302);  // +0.5
-    vec3 c4 = vec3(0.776, 0.184, 0.122);  // +1.0  (+range, crest)
+    vec3 c0 = vec3(0.039, 0.192, 0.380);  // -1.0  #0a3161  deep drawdown
+    vec3 c1 = vec3(0.141, 0.373, 0.612);  // -0.5  #245f9c
+    vec3 c2 = vec3(0.384, 0.639, 0.839);  //  0.0  #62a3d6  calm sea
+    vec3 c3 = vec3(0.933, 0.604, 0.302);  // +0.5  #ee9a4d
+    vec3 c4 = vec3(0.776, 0.184, 0.122);  // +1.0  #c62f1f  crest
     if (a < -0.5) return mix(c0, c1, (a + 1.0) * 2.0);
     if (a <  0.0) return mix(c1, c2, (a + 0.5) * 2.0);
     if (a <  0.5) return mix(c2, c3, a * 2.0);
