@@ -54,6 +54,55 @@ Entry format:
 
 (entries accumulate here, newest first)
 
+## 2026-07-17 — M7: casualties + day/night (Phase 2 complete)
+- Shipped: `js/casualties.js` — faithful port of the desktop
+  `core/damage/casualties.py`. Same fatality lognormal in depth with the
+  median pulled DOWN by local flow speed (calm 2.0 m → swept 0.8 m at ≥3
+  m/s), same three evacuation gates: LEAD TIME (depart = quake +
+  detection 180 s + reaction 300 s; margin vs the building's arrival
+  through a soft logistic, spread 90 s), REFUGE (nearest ground ≥ 15 m by
+  the frontier-only search, on the POST-event bed so coseismic subsidence
+  can drown a refuge), ROUTE (straight path sampled against the arrival
+  field, cut to a 0.15 floor if the water beats the walker). Wired into
+  the app: casualties assessed alongside damage at the 30-frame cadence,
+  reported on a SEPARATE line from dollars (property and life are
+  different axes — the divergence is the lesson), amber... red when > 0.
+  A **day/night toggle** (☀/☾ button) flips occupancy: homes by night,
+  schools/workplaces by day. Refuges cached per terrain epoch;
+  `t_quake=null` = the wave's first arrival (near-field-correct).
+- Verified: **contract page 29/29** (+8 casualty-canon checks): the
+  browser reproduces desktop-computed expected day AND night casualties
+  on the frozen synthetic fields — every building's expected deaths to
+  1.1e-16 (day) / 2.2e-16 (night), fatalities/evac%/at-risk exact,
+  defaults asserted equal to the desktop knobs, night-deadlier-than-day
+  pinned. Live in-app on scenario C (driven to t≈30 min, real physics):
+  damage $0.45B (93%, 828 collapsed) unchanged by the toggle; **day
+  ~2,417 dead / evac 16%** vs **night ~3,667 dead / evac 2%** — matching
+  the desktop showcase (~2,089 day / ~3,646 night). The real ☀/☾ button
+  click flips the casualty line and leaves damage put. verify.py PASS,
+  invariants 18/18, parity untouched.
+- Deferred: regional early-warning window (scenario B / wavemaker) — the
+  desktop's P7 credits a distant quake's travel-time head-start by
+  passing the true rupture time as `t_quake`; the web port uses first-
+  arrival everywhere (near-field-correct, understates B's warning). A
+  clean M8+ addition when wanted. Also deferred: P5 evacuation DEFENSES
+  (EWS/towers/drills) that would edit the evac knobs — none exist in the
+  web port; the defaults ARE the model. By-building casualty detail is in
+  `__app.getCasualtyReport()` but not surfaced beyond the summary line.
+- Open bugs: none. Same embedded-browser module-cache quirk as M6
+  (documented there); the app DOM was verified by a temporary
+  `?devcachebust=1` on the app.js import (reverted before commit) — the
+  ☀/☾ button, both readout lines, and toggle behavior all confirmed live.
+- Decisions: casualties and damage on separate UI lines, never merged
+  (the desktop rule). Day/night re-prices casualties only, never damage.
+  Canon casualties use `t_quake=None` so the synthetic-field contract
+  matches the app's default path exactly.
+
+  **Phase 2 (M5 town → M6 damage → M7 casualties) is complete.** The
+  browser now tells the whole story on one page: same town, three
+  scenarios, dollars and lives on separate axes, day vs night. Every
+  number reproduces the desktop canon to machine epsilon.
+
 ## 2026-07-17 — M6: structural damage (fragility + losses, live on the map)
 - Shipped: `js/fragility.js` + `js/losses.js` — faithful ports of the
   desktop `core/damage/fragility.py` + `losses.py`. Same lognormal

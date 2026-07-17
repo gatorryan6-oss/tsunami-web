@@ -17,6 +17,7 @@ import { Simulation } from "./sim.js";
 import { getHazardFields, arrivalRange, inundationExtent } from "./hazard.js";
 import { loadTown } from "./town.js";
 import { assessTown } from "./losses.js";
+import { assessCasualties, nearestRefuges, defaultEvacuationParams } from "./casualties.js";
 
 export async function runContractChecks(gl, shaders) {
     const checks = [];
@@ -142,11 +143,11 @@ export async function runContractChecks(gl, shaders) {
         }
     }
 
-    // --- 3. Damage canon (web M6): the fragility/losses port reproduces
-    // desktop-computed expected numbers on FIXED synthetic hazard fields
-    // and the frozen town. This is a pure math contract — no GPU — so the
+    // --- 3+4. Phase-2 canon (web M6/M7): the fragility/losses AND casualty
+    // ports reproduce desktop-computed expected numbers on FIXED synthetic
+    // hazard fields and the frozen town. A pure math contract — no GPU — so
     // agreement is tight (both sides: float32 field bytes, float64 A&S erf).
-    await damageCanonChecks(check);
+    await phase2CanonChecks(check);
 
     return { pass: checks.every(c => c.ok), checks };
 }
@@ -166,7 +167,7 @@ function embedField(n, box, flat, outside) {
     return full;
 }
 
-async function damageCanonChecks(check) {
+async function phase2CanonChecks(check) {
     let canon;
     try {
         const r = await fetch("data/phase2_canon.json");
@@ -232,4 +233,63 @@ async function damageCanonChecks(check) {
     check(critMatch,
           `damage canon: ${report.critical.length} critical facilities ` +
           `match desktop by type + damage`);
+
+    // --- Casualty canon (web M7). Same fields, plus the POST-event bed
+    // (here the pre-event bed — the canon applies no coseismic) for the
+    // refuge search, and default evacuation knobs. Both day and night.
+    let bed;
+    try {
+        const br = await fetch("data/a_deep_propagation/bed.json");
+        const bj = await br.json();
+        bed = Float32Array.from(bj.data);
+    } catch (e) {
+        check(false, `casualty canon: failed to load bed (${e.message})`);
+        return;
+    }
+    const ec = canon.expected_casualties;
+    // The browser's defaults must equal the knobs the desktop used, or the
+    // reproduction is meaningless — assert it, don't assume it.
+    const p = defaultEvacuationParams();
+    const paramsMatch =
+        p.detectionDelayS === ec.params.detection_delay_s &&
+        p.reactionDelayS === ec.params.reaction_delay_s &&
+        p.walkSpeedMS === ec.params.walk_speed_m_s &&
+        p.criticalSpeedFactor === ec.params.critical_speed_factor &&
+        p.refugeMinElevM === ec.params.refuge_min_elev_m &&
+        p.spreadS === ec.params.spread_s &&
+        p.routeCutFloor === ec.params.route_cut_floor &&
+        p.routeCutDepthM === ec.params.route_cut_depth_m &&
+        p.injuriesPerFatality === ec.params.injuries_per_fatality;
+    check(paramsMatch,
+          "casualty canon: web evacuation defaults equal the desktop knobs");
+
+    // Refuges are computed by the port from the bed (part of what's tested).
+    const refuges = nearestRefuges(town, grid, bed, p);
+    for (const mode of ["day", "night"]) {
+        const daytime = mode === "day";
+        const rep = assessCasualties(town, grid, bed, hazard, p, daytime,
+                                     refuges, ec.t_quake_s);
+        const e = ec[mode];
+        // Per-building expected deaths: the exhaustive check.
+        let maxErr = 0, worst = -1;
+        for (let k = 0; k < rep.perBuilding.length; k++) {
+            const d = Math.abs(rep.perBuilding[k] - e.per_building[k]);
+            if (d > maxErr) { maxErr = d; worst = k; }
+        }
+        check(maxErr < 1e-9,
+              `casualty canon (${mode}): every building's expected deaths ` +
+              `match desktop (max |Δ| ${maxErr.toExponential(2)} at #${worst})`);
+        check(Math.abs(rep.fatalities - e.fatalities) < 1e-6,
+              `casualty canon (${mode}): ${Math.round(rep.fatalities)} dead ` +
+              `matches desktop ${Math.round(e.fatalities)}`);
+        check(Math.abs(rep.evacSuccess - e.evac_success) < 1e-9 &&
+              rep.present === e.present && rep.atRisk === e.at_risk,
+              `casualty canon (${mode}): evac ${(100 * rep.evacSuccess).toFixed(0)}% ` +
+              `· present ${rep.present} · at-risk ${rep.atRisk} match desktop`);
+    }
+    // The lesson, pinned: night must be deadlier than day (homes emptied
+    // into high-ground schools/workplaces by day).
+    check(canon.expected_casualties.night.fatalities >
+          canon.expected_casualties.day.fatalities,
+          "casualty canon: night is deadlier than day (the day/night lesson)");
 }

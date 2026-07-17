@@ -9,6 +9,7 @@ import { loadTown } from "./town.js";
 import { TownOverlay, computeInsetWindow, uvWindow } from "./overlay.js";
 import { getHazardFields } from "./hazard.js";
 import { assessTown, damageColorCss } from "./losses.js";
+import { assessCasualties, nearestRefuges, defaultEvacuationParams } from "./casualties.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -74,7 +75,11 @@ async function main() {
     let insetUV = null;        // the inset's GL texture window
     let townGrid = null;       // {n, dx, xmin, ymin} for the current scenario
     let damageReport = null;   // latest assess_town result (null until fired)
+    let casualtyReport = null; // latest assess_casualties result
+    let refuges = null;        // cached per terrain epoch (post-fire bed)
     let assessTick = 0;        // frame counter for the 30-frame cadence
+    let daytime = true;        // day/night occupancy toggle
+    const evacParams = defaultEvacuationParams();
 
     // The overlay's building color: base albedo until damage exists, then
     // the desktop's amber->red tint by expected fraction.
@@ -85,10 +90,13 @@ async function main() {
 
     // Assess the town from the accumulated hazard (one GPU readback through
     // getHazardFields — the ONLY hazard consumer). Cheap at the 30-frame
-    // cadence; mirrors the desktop's _peak_refresh.
+    // cadence; mirrors the desktop's _peak_refresh. Damage (dollars) and
+    // casualties (lives) are computed and reported on SEPARATE lines —
+    // property and life are different axes, and the divergence is the lesson.
     function assessDamage() {
         if (!town || !townGrid || !solver) return;
         const hz = getHazardFields(solver);
+
         damageReport = assessTown(town, townGrid, hz);
         const r = damageReport;
         const critHit = r.critical.filter(c => c[1] >= 0.2).length;
@@ -98,6 +106,27 @@ async function main() {
             `${r.counts.collapse || 0} collapsed, ${r.counts.major || 0} major · ` +
             `${critHit}/${r.critical.length} critical facilities hit`;
         $("damage").classList.toggle("hit", r.lossPct >= 1.0);
+
+        // Refuges depend only on the (post-event) bed — compute once per
+        // terrain epoch and reuse across cadence ticks and day/night flips.
+        if (!refuges) refuges = nearestRefuges(town, townGrid, solver.b, evacParams);
+        // t_quake = null: the wave's own first arrival (near-field-correct;
+        // scenario b's regional warning window is a documented M7 limitation).
+        casualtyReport = assessCasualties(town, townGrid, solver.b, hz,
+                                          evacParams, daytime, refuges, null);
+        renderCasualtyLine();
+    }
+
+    function renderCasualtyLine() {
+        const c = casualtyReport;
+        if (!c) { $("casualty").textContent = ""; return; }
+        const mode = daytime ? "Day" : "Night";
+        $("casualty").textContent =
+            `Casualties (${mode.toLowerCase()}): ~${Math.round(c.fatalities).toLocaleString("en-US")} dead, ` +
+            `~${Math.round(c.injuries).toLocaleString("en-US")} hurt of ` +
+            `${c.present.toLocaleString("en-US")} present · ` +
+            `evacuation ${(100 * c.evacSuccess).toFixed(0)}%`;
+        $("casualty").classList.toggle("hit", c.fatalities >= 1.0);
     }
     // The event is ARMED at load and fired on the first Run press, so the
     // user sees the calm pre-event ocean first and the rupture/pulse/train
@@ -119,9 +148,13 @@ async function main() {
         // Town views ride the scenario grid (all three share one bed, but
         // derive per-scenario anyway — cheap, and never silently stale).
         damageReport = null;       // fresh scenario: no damage yet
+        casualtyReport = null;
+        refuges = null;            // new bed epoch: refuges recompute
         assessTick = 0;
         $("damage").textContent = "";
         $("damage").classList.remove("hit");
+        $("casualty").textContent = "";
+        $("casualty").classList.remove("hit");
         if (town) {
             const g = scenarioData.params.grid;
             townGrid = { n: g.n, dx: g.dx_m,
@@ -134,6 +167,8 @@ async function main() {
         // Debug/console handle (also used by automated checks).
         window.__app = { solver, sim, scenarioData, town, overlay, draw,
                          assessDamage, getDamageReport: () => damageReport,
+                         getCasualtyReport: () => casualtyReport,
+                         setDaytime: (d) => { daytime = d; },
                          triggerEvent: () => triggerEvent(0) };
         $("status").textContent =
             `${id} ready — calm ocean, ${solver.n}x${solver.n} grid. ` +
@@ -287,6 +322,18 @@ async function main() {
     $("speed").addEventListener("input", () => {
         if (sim) sim.timeScale = parseFloat($("speed").value);
         $("speedval").textContent = `x${$("speed").value}`;
+    });
+    // Day/night: flips who's where. Same wave, different victims — the
+    // occupancy toggle re-prices casualties (not damage: buildings don't
+    // care what time it is). Re-assess if the event has already fired.
+    $("daynight").addEventListener("click", () => {
+        daytime = !daytime;
+        $("daynight").textContent = daytime ? "☀ Day" : "☾ Night";
+        if (casualtyReport && solver) {
+            assessDamage();            // refresh casualties for the new mode
+        } else {
+            renderCasualtyLine();      // nothing fired yet: just the label
+        }
     });
 
     await setScenario(sel.value);
