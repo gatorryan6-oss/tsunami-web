@@ -50,6 +50,12 @@
     font-family: ui-monospace, Consolas, monospace;
   }
   #town.warn { color: #e0a13d; }
+  #damage {
+    font-size: 0.82rem; color: #9fb3c8; max-width: min(92vw, 660px);
+    text-align: center; margin: 0 0 6px; min-height: 1.2em;
+    font-family: ui-monospace, Consolas, monospace;
+  }
+  #damage.hit { color: #f0a868; }
   /* Legend: colorbar + scale bar — the display read as science. */
   #legend {
     display: flex; gap: 26px; align-items: flex-end; flex-wrap: wrap;
@@ -124,6 +130,7 @@
 <div id="status">booting…</div>
 <div id="desc"></div>
 <div id="town"></div>
+<div id="damage"></div>
 <div id="fatal"></div>
 <footer>
   Physics verified against the desktop reference:

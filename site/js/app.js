@@ -7,6 +7,8 @@ import { Simulation } from "./sim.js";
 import { SCENARIOS, loadScenario, createSolverAtRest, fireScenarioSource } from "./scenario.js";
 import { loadTown } from "./town.js";
 import { TownOverlay, computeInsetWindow, uvWindow } from "./overlay.js";
+import { getHazardFields } from "./hazard.js";
+import { assessTown, damageColorCss } from "./losses.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -70,6 +72,33 @@ async function main() {
     let sim = null;
     let scenarioData = null;
     let insetUV = null;        // the inset's GL texture window
+    let townGrid = null;       // {n, dx, xmin, ymin} for the current scenario
+    let damageReport = null;   // latest assess_town result (null until fired)
+    let assessTick = 0;        // frame counter for the 30-frame cadence
+
+    // The overlay's building color: base albedo until damage exists, then
+    // the desktop's amber->red tint by expected fraction.
+    function buildingColor(k, b) {
+        if (!damageReport || k >= damageReport.fractions.length) return null;
+        return damageColorCss(b.type.color, damageReport.fractions[k]);
+    }
+
+    // Assess the town from the accumulated hazard (one GPU readback through
+    // getHazardFields — the ONLY hazard consumer). Cheap at the 30-frame
+    // cadence; mirrors the desktop's _peak_refresh.
+    function assessDamage() {
+        if (!town || !townGrid || !solver) return;
+        const hz = getHazardFields(solver);
+        damageReport = assessTown(town, townGrid, hz);
+        const r = damageReport;
+        const critHit = r.critical.filter(c => c[1] >= 0.2).length;
+        $("damage").textContent =
+            `Damage: $${(r.totalLoss / 1e9).toFixed(2)}B of ` +
+            `$${(r.totalValue / 1e9).toFixed(2)}B (${r.lossPct.toFixed(0)}%) · ` +
+            `${r.counts.collapse || 0} collapsed, ${r.counts.major || 0} major · ` +
+            `${critHit}/${r.critical.length} critical facilities hit`;
+        $("damage").classList.toggle("hit", r.lossPct >= 1.0);
+    }
     // The event is ARMED at load and fired on the first Run press, so the
     // user sees the calm pre-event ocean first and the rupture/pulse/train
     // reads as an event, not as "the map starts red".
@@ -89,17 +118,22 @@ async function main() {
         $("run").textContent = "Run";
         // Town views ride the scenario grid (all three share one bed, but
         // derive per-scenario anyway — cheap, and never silently stale).
+        damageReport = null;       // fresh scenario: no damage yet
+        assessTick = 0;
+        $("damage").textContent = "";
+        $("damage").classList.remove("hit");
         if (town) {
             const g = scenarioData.params.grid;
-            const grid = { n: g.n, dx: g.dx_m,
-                           xmin: -g.domain_m / 2, ymin: -g.domain_m / 2 };
-            overlay.setGrid(grid);
-            const win = computeInsetWindow(scenarioData.bed, grid, town);
+            townGrid = { n: g.n, dx: g.dx_m,
+                         xmin: -g.domain_m / 2, ymin: -g.domain_m / 2 };
+            overlay.setGrid(townGrid);
+            const win = computeInsetWindow(scenarioData.bed, townGrid, town);
             overlay.setWindow(win);
-            insetUV = uvWindow(win, grid);
+            insetUV = uvWindow(win, townGrid);
         }
         // Debug/console handle (also used by automated checks).
         window.__app = { solver, sim, scenarioData, town, overlay, draw,
+                         assessDamage, getDamageReport: () => damageReport,
                          triggerEvent: () => triggerEvent(0) };
         $("status").textContent =
             `${id} ready — calm ocean, ${solver.n}x${solver.n} grid. ` +
@@ -193,7 +227,7 @@ async function main() {
             gl.disable(gl.SCISSOR_TEST);
         }
         gl.bindVertexArray(null);
-        overlay.render(town);
+        overlay.render(town, buildingColor);
     }
 
     let lastT = performance.now();
@@ -203,6 +237,14 @@ async function main() {
         lastT = now;
         if (solver && sim) {
             const steps = sim.advance(wallDt);
+            // Reassess damage on the desktop's cadence once the event has
+            // fired (solver clock past 0). Every ~30 running frames, plus
+            // one final assessment when the sim pauses/settles so a paused
+            // frame shows the finished toll, not a stale one.
+            if (!sim.paused && solver.timeS > 0) {
+                if (assessTick % 30 === 0) assessDamage();
+                assessTick++;
+            }
             draw();
             fpsAcc += wallDt; fpsN += 1;
             if (fpsAcc >= 0.5) {
@@ -237,6 +279,9 @@ async function main() {
         if (armed) { triggerEvent(); return; }
         sim.paused = !sim.paused;
         $("run").textContent = sim.paused ? "Run" : "Pause";
+        // Pausing: snap the damage readout to the current state (the
+        // running cadence may be up to 30 frames stale).
+        if (sim.paused && solver && solver.timeS > 0) assessDamage();
     });
     $("reset").addEventListener("click", () => setScenario(sel.value).catch(e => fatal(e.message)));
     $("speed").addEventListener("input", () => {

@@ -36,11 +36,15 @@ Also see the <a href="parity.html">physics parity harness</a>.</p>
 <canvas id="glcanvas" width="8" height="8" style="display:none"></canvas>
 <script type="module">
 import { createContext, loadShaderSources } from "./js/gl.js";
-import { runContractChecks } from "./js/contract.js";
 
 const $ = (id) => document.getElementById(id);
 (async () => {
   try {
+    // A test harness must always run the CURRENT code. Load the contract
+    // module with a cache-buster so an aggressive module cache can never
+    // silently re-run a stale version (observed in some embedded browsers:
+    // fresh bytes fetched, old compiled module executed).
+    const { runContractChecks } = await import("./js/contract.js?v=" + Date.now());
     const { gl } = createContext($("glcanvas"));
     const shaders = await loadShaderSources();
     const result = await runContractChecks(gl, shaders);

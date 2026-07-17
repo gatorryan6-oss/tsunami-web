@@ -15,6 +15,8 @@
 import { GPUNonlinearSWESolver } from "./solver.js";
 import { Simulation } from "./sim.js";
 import { getHazardFields, arrivalRange, inundationExtent } from "./hazard.js";
+import { loadTown } from "./town.js";
+import { assessTown } from "./losses.js";
 
 export async function runContractChecks(gl, shaders) {
     const checks = [];
@@ -140,5 +142,94 @@ export async function runContractChecks(gl, shaders) {
         }
     }
 
+    // --- 3. Damage canon (web M6): the fragility/losses port reproduces
+    // desktop-computed expected numbers on FIXED synthetic hazard fields
+    // and the frozen town. This is a pure math contract — no GPU — so the
+    // agreement is tight (both sides: float32 field bytes, float64 A&S erf).
+    await damageCanonChecks(check);
+
     return { pass: checks.every(c => c.ok), checks };
+}
+
+/** Rebuild the (n, n) float32 field the desktop assessed: float32(box
+ *  values) inside the box, the `outside` fill elsewhere. Mirrors
+ *  make_phase2_canon.embed_full EXACTLY. */
+function embedField(n, box, flat, outside) {
+    const full = new Float32Array(n * n).fill(outside);
+    const w = box.i1 - box.i0 + 1;
+    const src = Float32Array.from(flat);   // 6-sig-digit JSON -> float32
+    for (let jj = box.j0; jj <= box.j1; jj++) {
+        for (let ii = box.i0; ii <= box.i1; ii++) {
+            full[jj * n + ii] = src[(jj - box.j0) * w + (ii - box.i0)];
+        }
+    }
+    return full;
+}
+
+async function damageCanonChecks(check) {
+    let canon;
+    try {
+        const r = await fetch("data/phase2_canon.json");
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        canon = await r.json();
+    } catch (e) {
+        check(false, `damage canon: failed to load phase2_canon.json (${e.message})`);
+        return;
+    }
+    const town = await loadTown();
+    const g = canon.provenance.grid;
+    const grid = { n: g.n, dx: g.dx_m, xmin: g.xmin_m, ymin: g.ymin_m };
+    const box = canon.box, o = canon.outside;
+    const hazard = {
+        depth: embedField(grid.n, box, canon.fields.depth, o.depth),
+        speed: embedField(grid.n, box, canon.fields.speed, o.speed),
+        momentum: embedField(grid.n, box, canon.fields.momentum, o.momentum),
+        arrival: embedField(grid.n, box, canon.fields.arrival, o.arrival),
+        n: grid.n,
+    };
+    const report = assessTown(town, grid, hazard);
+    const exp = canon.expected_damage;
+
+    // Per-building fractions: the exhaustive check. Tolerance 1e-9 (JSON
+    // stores full-precision expected fractions; the only divergence is
+    // float64 op-order, negligible).
+    let maxErr = 0, worst = -1;
+    for (let k = 0; k < report.fractions.length; k++) {
+        const e = Math.abs(report.fractions[k] - exp.fractions[k]);
+        if (e > maxErr) { maxErr = e; worst = k; }
+    }
+    check(report.fractions.length === exp.fractions.length,
+          `damage canon: ${report.fractions.length} building fractions ` +
+          `(desktop ${exp.fractions.length})`);
+    check(maxErr < 1e-9,
+          `damage canon: every building fraction matches desktop ` +
+          `(max |Δ| ${maxErr.toExponential(2)} at #${worst})`);
+
+    // Aggregates.
+    check(Math.abs(report.totalLoss - exp.total_loss) < 1.0,
+          `damage canon: total loss $${(report.totalLoss / 1e9).toFixed(4)}B ` +
+          `matches desktop $${(exp.total_loss / 1e9).toFixed(4)}B`);
+    check(Math.abs(report.totalValue - exp.total_value) < 1e-6,
+          `damage canon: total value matches desktop ` +
+          `($${(report.totalValue / 1e9).toFixed(2)}B)`);
+    check(Math.abs(report.lossPct - exp.loss_pct) < 1e-6,
+          `damage canon: loss ${report.lossPct.toFixed(1)}% matches desktop`);
+
+    // State counts — the histogram must be identical bucket-for-bucket.
+    const states = ["none", "minor", "moderate", "major", "collapse"];
+    const countsMatch = states.every(
+        s => (report.counts[s] || 0) === (exp.counts[s] || 0));
+    check(countsMatch,
+          `damage canon: damage-state counts match desktop ` +
+          `(${states.map(s => (report.counts[s] || 0)).join("/")})`);
+
+    // Critical facilities: same set, same fractions, same order.
+    let critMatch = report.critical.length === exp.critical.length;
+    for (let k = 0; k < report.critical.length && critMatch; k++) {
+        critMatch = report.critical[k][0] === exp.critical[k][0] &&
+            Math.abs(report.critical[k][1] - exp.critical[k][1]) < 1e-9;
+    }
+    check(critMatch,
+          `damage canon: ${report.critical.length} critical facilities ` +
+          `match desktop by type + damage`);
 }

@@ -54,6 +54,52 @@ Entry format:
 
 (entries accumulate here, newest first)
 
+## 2026-07-17 — M6: structural damage (fragility + losses, live on the map)
+- Shipped: `js/fragility.js` + `js/losses.js` — faithful ports of the
+  desktop `core/damage/fragility.py` + `losses.py`. Same lognormal
+  curves, same A&S-7.1.26 erf, same momentum-flux term raising the two
+  severe states, same loss increments (0.10/0.20/0.30/0.40), same
+  FRAGILITY table, same loud unknown-class guard. `assessTown(town,
+  grid, hazard)` samples hazards at each building (nearest cell) and
+  returns fractions + $ totals + by-type + damage-state counts + critical
+  facilities listed SEPARATELY. Wired into the app: at the desktop's
+  30-frame cadence once the event has fired (one `getHazardFields()`
+  readback — the only hazard consumer), buildings recolor base→amber→red
+  by expected fraction (the verbatim desktop ramp), and a "Damage: $X of
+  $Y (Z%) · N collapsed, M major · c/6 critical hit" readout appears
+  (amber when loss ≥ 1%). A final assessment fires on pause so a stopped
+  frame shows the settled toll. `overlay.render(town, buildingColor)` —
+  the M5 `colorOf` hook, now used; the renderer was untouched.
+- Verified: **contract page 21/21** (14 accessor + 7 NEW damage-canon):
+  the browser reproduces desktop-computed expected damage on frozen
+  synthetic fields (`phase2_canon.json`) to machine epsilon — every
+  building fraction max |Δ| 2.2e-16, total loss Δ 1.2e-7 $, loss% exact,
+  state counts identical 10/3/23/236/578, 6/6 critical by type+damage.
+  Live in-app (scenario C driven to t≈27 min): "$0.45B of $0.48B (93%) ·
+  828 collapsed, 4 major · 3/6 critical hit", overlay ~53% red — matches
+  the desktop's Phase-2 showcase ($0.43B/90%/827 collapse). Scenario A
+  (floods nothing): 0% loss, 0 collapse, buildings stay base albedo (no
+  false damage). verify.py PASS, invariants 18/18, parity unaffected
+  (no physics touched).
+- Deferred: a damage-display toggle (desktop's V key) — the web shows
+  damage colors whenever a report exists; add a toggle if the classroom
+  wants the plain town back mid-run. By-type and critical-facility detail
+  is computed and in `__app.getDamageReport()` but not yet surfaced in
+  the UI (M6 shows the summary line; a details panel is a polish item).
+- Open bugs: none. Dev-environment caching quirk (documented, not a code
+  bug): this embedded browser serves stale HTML/ES-modules on 200s across
+  navigations AND server restarts — a top-level URL cache-buster
+  (`?fresh=N`) forces truth. `tests.html` now dynamic-imports contract.js
+  with a `?v=Date.now()` buster so the harness always runs current code;
+  real visitors / hard-refresh are unaffected.
+- Decisions: damage inputs for the canon are SYNTHETIC analytic fields,
+  not a GPU run — a math contract wants fixed bytes both sides read, not
+  hardware-varying physics (parity already covers the physics). Canon is
+  computed from the re-read quantized+float32 fields (what the browser
+  consumes), never the pre-quantization floats. town.json is READ by the
+  canon script, never regenerated — desktop and browser assess identical
+  cm-rounded coordinates.
+
 ## 2026-07-17 — M5: the town on the map (phase 2 begins)
 - Shipped: **town.json** (frozen canon, 69 KB) baked by the DESKTOP
   generator (`port_package/make_town_data.py`, seed 1, desktop commit
