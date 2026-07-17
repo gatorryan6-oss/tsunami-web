@@ -54,6 +54,28 @@ Entry format:
 
 (entries accumulate here, newest first)
 
+## 2026-07-17 — Colormap: calm sea no longer reads as "below zero" (user-caught)
+- Symptom: the resting ocean was colored a mid-blue (#2673a6) nearly
+  identical to the −1 m drawdown blue (#0659b2), so calm water read as a
+  negative anomaly against the legend. The old ramp was a broken diverging
+  map (blue on BOTH the negative side and near-zero, plus a green/blue
+  discontinuity at 0).
+- Fix (display.frag + index.html #colorbar, kept in sync): new 5-stop
+  diverging ramp `anomalyColor(a)` with a LIGHT, central calm — chosen by
+  the user (Option B): −2 m deep navy #08306b → −1 m blue #4a90c2 → 0 pale
+  sea-blue #cfe3ec (calm) → +1 m amber #ef9a4d → +2 m red #c62f1f.
+  Continuous through zero; the resting sea is now unmistakably "baseline"
+  and any wave (cool drawdown / warm crest) pops against it.
+- Verified: fresh display program renders calm deep ocean at EXACTLY
+  (207,227,236) = #cfe3ec, uniform (the bed/state filter fix holds — no
+  checkerboard); a stepped pulse's crest renders warm, nothing miscolored;
+  the legend gradient in the DOM matches the shader stops exactly.
+  Display-only — display.frag is not a frozen physics shader; parity and
+  the physics are untouched. invariants 18/18, verify.py PASS.
+- Decision: sea-surface-anomaly colormap must keep a LIGHT central (zero)
+  tone so calm never reads as a signed anomaly; shader ramp and the
+  #colorbar CSS gradient are the two keep-in-sync sites.
+
 ## 2026-07-17 — Fix: false-anomaly checkerboard in the town close-up (user-caught)
 - Symptom: the zoomed town-inset ocean showed a static red/blue/teal
   checkerboard (user asked "are those waves?" — no) that never responded

@@ -71,11 +71,12 @@
   #colorbar { flex: 1 1 260px; }
   #colorbar .bar {
     height: 12px; border-radius: 3px; border: 1px solid #2a3542;
-    /* EXACTLY the display.frag anomaly ramp, sampled at a = -1, -0.5,
-       0-, 0+, +0.5, +1 (keep in sync with the shader). */
+    /* EXACTLY the display.frag anomalyColor() ramp, sampled at
+       a = -1, -0.5, 0, +0.5, +1 (keep in sync with the shader).
+       Zero (calm sea) is the light central tone. */
     background: linear-gradient(to right,
-      #0033f2 0%, #0659b3 25%, #0d8073 49.8%,
-      #2673a6 50.2%, #935960 75%, #ff401a 100%);
+      #08306b 0%, #4a90c2 25%, #cfe3ec 50%,
+      #ef9a4d 75%, #c62f1f 100%);
   }
   #colorbar .labels, #scalebar .labels {
     display: flex; justify-content: space-between;
