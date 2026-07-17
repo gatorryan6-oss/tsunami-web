@@ -47,6 +47,38 @@ function makeGridMesh(nQuads, size) {
     return { positions, indices };
 }
 
+// How far a building sinks below its ground point, so boxes never float
+// on sloped terrain (desktop town_render.SINK_M).
+const SINK_M = 1.5;
+
+/** 36 vertices (position xyz + normal xyz) of a unit cube, base at z = 0 —
+ *  the desktop _unit_cube(), row for row. */
+function unitCube() {
+    const faces = [
+        [[0, 0, -1], [[-.5, -.5, 0], [.5, .5, 0], [.5, -.5, 0],
+                      [-.5, -.5, 0], [-.5, .5, 0], [.5, .5, 0]]],
+        [[0, 0, 1], [[-.5, -.5, 1], [.5, -.5, 1], [.5, .5, 1],
+                     [-.5, -.5, 1], [.5, .5, 1], [-.5, .5, 1]]],
+        [[0, -1, 0], [[-.5, -.5, 0], [.5, -.5, 0], [.5, -.5, 1],
+                      [-.5, -.5, 0], [.5, -.5, 1], [-.5, -.5, 1]]],
+        [[0, 1, 0], [[-.5, .5, 0], [.5, .5, 1], [.5, .5, 0],
+                     [-.5, .5, 0], [-.5, .5, 1], [.5, .5, 1]]],
+        [[-1, 0, 0], [[-.5, -.5, 0], [-.5, .5, 1], [-.5, .5, 0],
+                      [-.5, -.5, 0], [-.5, -.5, 1], [-.5, .5, 1]]],
+        [[1, 0, 0], [[.5, -.5, 0], [.5, .5, 0], [.5, .5, 1],
+                     [.5, -.5, 0], [.5, .5, 1], [.5, -.5, 1]]],
+    ];
+    const out = new Float32Array(36 * 6);
+    let k = 0;
+    for (const [norm, verts] of faces) {
+        for (const v of verts) {
+            out[k++] = v[0]; out[k++] = v[1]; out[k++] = v[2];
+            out[k++] = norm[0]; out[k++] = norm[1]; out[k++] = norm[2];
+        }
+    }
+    return out;
+}
+
 export class Scene3D {
     constructor(gl, shaders, n, sizeM) {
         this.gl = gl;
@@ -59,6 +91,8 @@ export class Scene3D {
                                       shaders.skyFrag, "sky3d");
         this.waterProg = compileProgram(gl, shaders.waterVert,
                                         shaders.waterFrag, "water3d");
+        this.buildingProg = compileProgram(gl, shaders.buildingVert,
+                                           shaders.buildingFrag, "building3d");
 
         // Terrain mesh: one vertex per heightfield texel.
         const { positions, indices } = makeGridMesh(n - 1, sizeM);
@@ -76,6 +110,35 @@ export class Scene3D {
         gl.bindVertexArray(null);
 
         this.quad = createQuad(gl);   // sky's fullscreen pair
+
+        // Town: one unit cube + a per-instance buffer (11 floats each:
+        // center xyz, scale xyz, rot cos/sin, color rgb) — the whole town
+        // in a single instanced draw, exactly the desktop TownRenderer.
+        this.cubeVbo = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.cubeVbo);
+        gl.bufferData(gl.ARRAY_BUFFER, unitCube(), gl.STATIC_DRAW);
+        this.instVbo = gl.createBuffer();
+        this.townVao = gl.createVertexArray();
+        gl.bindVertexArray(this.townVao);
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.cubeVbo);
+        gl.enableVertexAttribArray(0);                          // in_pos
+        gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 24, 0);
+        gl.enableVertexAttribArray(1);                          // in_norm
+        gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 24, 12);
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.instVbo);
+        const STRIDE = 44;   // 11 floats
+        for (const [loc, size, off] of [[2, 3, 0],   // i_center
+                                        [3, 3, 12],  // i_scale
+                                        [4, 2, 24],  // i_rot
+                                        [5, 3, 32]]) // i_color
+        {
+            gl.enableVertexAttribArray(loc);
+            gl.vertexAttribPointer(loc, size, gl.FLOAT, false, STRIDE, off);
+            gl.vertexAttribDivisor(loc, 1);
+        }
+        gl.bindVertexArray(null);
+        this.townCount = 0;
+        this._townData = null;   // CPU copy: color updates rewrite cols 8-10
 
         // No man-made structures in the web port yet: a 1x1 zero mask.
         // (The desktop falls back to binding the height texture when no
@@ -138,7 +201,63 @@ export class Scene3D {
         gl.uniform1f(wu("u_exagg_shallow"), 8.0);
         gl.uniform1f(wu("u_exagg_deep"), 60.0);
         gl.uniform1f(wu("u_slope_boost"), 700.0);
+
+        gl.useProgram(this.buildingProg);
+        const bu = (name) => gl.getUniformLocation(this.buildingProg, name);
+        this._b = { view: bu("u_view"), proj: bu("u_proj"),
+                    sun: bu("u_sun_dir") };
         gl.useProgram(null);
+    }
+
+    /** (Re)build the instance buffer from the frozen town. Buildings never
+     *  move in the web port (no sculpting), so this runs once per scene. */
+    setTown(town) {
+        const gl = this.gl;
+        if (!town || town.buildings.length === 0) {
+            this.townCount = 0;
+            this._townData = null;
+            return;
+        }
+        const count = town.buildings.length;
+        const data = new Float32Array(count * 11);
+        for (let k = 0; k < count; k++) {
+            const b = town.buildings[k];
+            const o = k * 11;
+            data[o + 0] = b.x;
+            data[o + 1] = b.y;
+            data[o + 2] = b.gz - SINK_M;
+            data[o + 3] = b.type.footprint_m;
+            data[o + 4] = b.type.footprint_m;
+            data[o + 5] = b.h + SINK_M;
+            data[o + 6] = Math.cos(b.rot);
+            data[o + 7] = Math.sin(b.rot);
+            data[o + 8] = b.type.color[0];
+            data[o + 9] = b.type.color[1];
+            data[o + 10] = b.type.color[2];
+        }
+        this._townData = data;
+        this.townCount = count;
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.instVbo);
+        gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
+        gl.bindBuffer(gl.ARRAY_BUFFER, null);
+    }
+
+    /** Overwrite per-building colors (the damage seam): colors is a
+     *  Float32Array(count*3). The caller computes the tint
+     *  (damageColorRgb) — this module stays pure display. Base albedo is
+     *  restored by setTown(), which every scenario load/reset runs. */
+    setTownColors(colors) {
+        const gl = this.gl;
+        if (!this._townData || colors.length !== this.townCount * 3) return;
+        for (let k = 0; k < this.townCount; k++) {
+            const o = k * 11;
+            this._townData[o + 8] = colors[k * 3];
+            this._townData[o + 9] = colors[k * 3 + 1];
+            this._townData[o + 10] = colors[k * 3 + 2];
+        }
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.instVbo);
+        gl.bufferData(gl.ARRAY_BUFFER, this._townData, gl.DYNAMIC_DRAW);
+        gl.bindBuffer(gl.ARRAY_BUFFER, null);
     }
 
     /** Draw the scene into the default framebuffer. */
@@ -172,6 +291,19 @@ export class Scene3D {
         gl.bindVertexArray(this.vao);
         gl.drawElements(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_INT, 0);
         gl.bindVertexArray(null);
+
+        // Town: the whole settlement in ONE instanced draw (opaque, so
+        // before sky and before the translucent water — a flooded
+        // building shows through the sea surface above it).
+        if (this.townCount > 0) {
+            gl.useProgram(this.buildingProg);
+            gl.uniformMatrix4fv(this._b.view, false, view);
+            gl.uniformMatrix4fv(this._b.proj, false, proj);
+            gl.uniform3f(this._b.sun, sunDir[0], sunDir[1], sunDir[2]);
+            gl.bindVertexArray(this.townVao);
+            gl.drawArraysInstanced(gl.TRIANGLES, 0, 36, this.townCount);
+            gl.bindVertexArray(null);
+        }
 
         // Sky: far-plane pass, LEQUAL so it fills exactly the pixels
         // nothing else claimed (its z = 0.9999999 vs clear depth 1.0).
@@ -223,9 +355,13 @@ export class Scene3D {
         gl.deleteBuffer(this.ibo);
         gl.deleteVertexArray(this.vao);
         gl.deleteTexture(this.zeroTex);
+        gl.deleteBuffer(this.cubeVbo);
+        gl.deleteBuffer(this.instVbo);
+        gl.deleteVertexArray(this.townVao);
         gl.deleteProgram(this.terrainProg);
         gl.deleteProgram(this.skyProg);
         gl.deleteProgram(this.waterProg);
+        gl.deleteProgram(this.buildingProg);
         gl.deleteBuffer(this.quad.vbo);
         gl.deleteVertexArray(this.quad.vao);
     }

@@ -54,6 +54,51 @@ Entry format:
 
 (entries accumulate here, newest first)
 
+## 2026-07-17 — M8c: the town in 3D (instanced buildings + damage tint) — 3D view complete
+- Shipped: `shaders/building.vert+frag` (ports of the desktop originals;
+  explicit `layout(location=N)` qualifiers replace moderngl's name-based
+  attribute binding — locations 0-1 per-vertex cube pos/norm, 2-5
+  per-instance center/scale/rot/color) and the town section of
+  `scene3d.js`: one 36-vertex unit cube + an 850×11-float instance buffer,
+  the whole settlement in a SINGLE instanced draw, sunk SINK_M=1.5 m so
+  boxes never float on slopes. Draw order terrain → TOWN → sky → water:
+  buildings are opaque, so a flooded building shows through the
+  translucent sea surface above it. `setTown(town)` builds instances from
+  the frozen town.json (buildings never move — no sculpting in the web
+  port); `setTownColors(Float32Array)` rewrites the color columns (37 KB
+  re-upload at the damage cadence — trivial). losses.js: the damage ramp
+  refactored into `damageColorRgb` (floats) with `damageColorCss` derived
+  from it — the 2D overlay and the 3D instances tint from ONE function,
+  so the two views can never disagree. app.js: `scene3d.setTown` per
+  scenario (restores base colors on load/reset); assessDamage pushes the
+  per-building tint to the 3D instances alongside the 2D readouts.
+- Verified (in-browser, fresh self-contained modules — solver + town +
+  scene built from scratch on the live context): GL error 0 throughout;
+  render-diff with/without town = 5,346 changed sample pixels at 2.6 km
+  (the settlement's footprint); scenario C fired and run to t=1500 s,
+  damage assessed on the REAL hazard fields (92.8% loss / 828 collapsed —
+  matching every M6/M7 number), tint pushed: red-building pixels 0 before
+  → 812 after. Full scene (terrain + 850 buildings + sky + water)
+  2.55 ms/render at 800² — 60 fps headroom. invariants 18/18, verify.py
+  PASS. No physics/shared-context changes.
+- Deferred: hazard overlays in 3D (terrain.frag branch is plumbed,
+  waiting on the overlay milestone); building damage STATES as geometry
+  (collapsed buildings still stand as boxes, only recolored — the desktop
+  does the same).
+- Open bugs: none in the app. (Dev-pane note: the embedded browser's
+  module cache can serve a MIXED-version graph — fresh app.js + stale
+  losses.js — which fails module instantiation and leaves the page at
+  "booting…". Deploys are atomic per-commit and real browsers hard-refresh
+  to a consistent graph; local testing must hard-refresh after edits.)
+- Decisions: town instances rebuilt per scenario load (cheap, and the
+  reset path restores base colors for free); one damage-ramp function
+  feeds both views.
+
+  **The 3D view (M8a skeleton → M8b water → M8c town) is complete.** Same
+  town, same physics, same damage numbers as the 2D map — now watchable
+  as a scene: the drawdown, the incoming wall, the flood, and the town
+  turning red beneath it.
+
 ## 2026-07-17 — M8b: the living water (sea-surface mesh, Fresnel, foam)
 - Shipped: `shaders/water.vert+frag`, faithful ports of the desktop
   originals. water.vert: the sea surface as a second displaced mesh —

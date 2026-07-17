@@ -8,7 +8,7 @@ import { SCENARIOS, loadScenario, createSolverAtRest, fireScenarioSource } from 
 import { loadTown } from "./town.js";
 import { TownOverlay, computeInsetWindow, uvWindow } from "./overlay.js";
 import { getHazardFields } from "./hazard.js";
-import { assessTown, damageColorCss } from "./losses.js";
+import { assessTown, damageColorCss, damageColorRgb } from "./losses.js";
 import { assessCasualties, nearestRefuges, defaultEvacuationParams } from "./casualties.js";
 import { OrbitCamera } from "./camera.js";
 import { Scene3D } from "./scene3d.js";
@@ -120,6 +120,18 @@ async function main() {
 
         damageReport = assessTown(town, townGrid, hz);
         const r = damageReport;
+        // Push the tint to the 3D instances (the 2D overlay recolors via
+        // its colorOf hook each draw; both derive from damageColorRgb, so
+        // the two views can never disagree).
+        if (scene3d && scene3d.townCount === town.buildings.length) {
+            const cols = new Float32Array(town.buildings.length * 3);
+            for (let k = 0; k < town.buildings.length; k++) {
+                const c = damageColorRgb(town.buildings[k].type.color,
+                                         r.fractions[k]);
+                cols[k * 3] = c[0]; cols[k * 3 + 1] = c[1]; cols[k * 3 + 2] = c[2];
+            }
+            scene3d.setTownColors(cols);
+        }
         const critHit = r.critical.filter(c => c[1] >= 0.2).length;
         $("damage").textContent =
             `Damage: $${(r.totalLoss / 1e9).toFixed(2)}B of ` +
@@ -191,6 +203,7 @@ async function main() {
         const g3 = scenarioData.params.grid;
         if (scene3d && scene3d.n !== g3.n) { scene3d.release(); scene3d = null; }
         if (!scene3d) scene3d = new Scene3D(gl, shaders, g3.n, g3.domain_m);
+        scene3d.setTown(town);   // rebuilds instances, restores base colors
         // Frame the camera on the town (the desktop's startup framing:
         // ~2.6x the town radius, afternoon-lit from the southwest).
         if (town) {

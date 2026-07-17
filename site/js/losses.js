@@ -79,18 +79,22 @@ export function assessTown(town, grid, hazard) {
 const DAMAGE_AMBER = [0.95, 0.72, 0.12];
 const DAMAGE_RED = [0.80, 0.07, 0.05];
 
-/** base [r,g,b] in 0..1, fraction 0..1 -> css "rgb(...)" for the overlay. */
-export function damageColorCss(base, fraction) {
-    if (fraction < 0.02) {
-        return `rgb(${(base[0] * 255) | 0},${(base[1] * 255) | 0},` +
-               `${(base[2] * 255) | 0})`;
-    }
+/** base [r,g,b] in 0..1, fraction 0..1 -> [r,g,b] in 0..1. The ONE damage
+ *  ramp — the 2D overlay's css colors and the 3D instance colors both
+ *  derive from this, so the two views can never tint differently. */
+export function damageColorRgb(base, fraction) {
+    if (fraction < 0.02) return base;
     const t1 = Math.min(1, Math.max(0, fraction / 0.5));
     const t2 = Math.min(1, Math.max(0, (fraction - 0.5) / 0.5));
-    const c = base.map((b, i) => {
+    return base.map((b, i) => {
         const amber = b * (1 - t1) + DAMAGE_AMBER[i] * t1;
         return amber * (1 - t2) + DAMAGE_RED[i] * t2;
     });
+}
+
+/** base [r,g,b] in 0..1, fraction 0..1 -> css "rgb(...)" for the overlay. */
+export function damageColorCss(base, fraction) {
+    const c = damageColorRgb(base, fraction);
     return `rgb(${(c[0] * 255) | 0},${(c[1] * 255) | 0},${(c[2] * 255) | 0})`;
 }
 
