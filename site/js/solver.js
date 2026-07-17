@@ -368,6 +368,19 @@ export class GPUNonlinearSWESolver {
         return this._state[this._cur];
     }
 
+    /** The live accumulator textures for the hazard-OVERLAY display
+     *  (acc0: R=depth, G=surf, B=speed, A=arrival; acc1: R=momentum) — a
+     *  GPU-sampling accessor, zero copies. This is display-only and DOES
+     *  NOT read back to the CPU: the damage/casualty MODELS still consume
+     *  hazards through getHazardFields() (the accessor contract). The
+     *  desktop draws its overlay by sampling these same textures directly
+     *  (terrain_render binds acc0/acc1). Null before tracking is enabled. */
+    get hazardTextures() {
+        if (this._accTex.length === 0) return null;
+        return { acc0: this._accTex[this._accCur],
+                 acc1: this._accTex2[this._accCur] };
+    }
+
     /** Upload a full state (h, and optionally hu, hv) to the CURRENT
      *  texture. Invalidates the dt cache like the desktop. */
     loadState(h, hu = null, hv = null) {

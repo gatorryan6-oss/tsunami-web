@@ -14,6 +14,7 @@
 
 import { compileProgram, createQuad } from "./gl.js";
 import { multiply, invert } from "./mat4.js";
+import { rampUniforms } from "./intensity.js";
 
 // Afternoon sun from the southwest (desktop app/main.py SUN_DIR).
 export const SUN_DIR = [0.45, 0.35, 0.82];
@@ -159,6 +160,10 @@ export class Scene3D {
         const tu = (name) => gl.getUniformLocation(this.terrainProg, name);
         this._t = {
             view: tu("u_view"), proj: tu("u_proj"), sun: tu("u_sun_dir"),
+            overlay: tu("u_overlay"), ovChannel: tu("u_ov_channel"),
+            ovEverywhere: tu("u_ov_everywhere"), ovRange: tu("u_ov_range"),
+            ovNstops: tu("u_ov_nstops"), ovStopT: tu("u_ov_stop_t"),
+            ovStopC: tu("u_ov_stop_c"),
         };
         gl.uniform1i(tu("u_height"), 0);
         gl.uniform1i(tu("u_max"), 2);
@@ -260,8 +265,10 @@ export class Scene3D {
         gl.bindBuffer(gl.ARRAY_BUFFER, null);
     }
 
-    /** Draw the scene into the default framebuffer. */
-    render(solver, camera, width, height, sunDir = SUN_DIR) {
+    /** Draw the scene into the default framebuffer. `overlay` is null (off)
+     *  or {field, range} — the SAME field spec + range the 2D map uses, so
+     *  both views paint one hazard field identically. */
+    render(solver, camera, width, height, sunDir = SUN_DIR, overlay = null) {
         const gl = this.gl;
         const view = camera.viewMatrix();
         const proj = camera.projectionMatrix(width / height);
@@ -273,19 +280,34 @@ export class Scene3D {
         gl.clearColor(0, 0, 0, 1);
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-        // Terrain. The solver's bed texture is the heightfield; it also
-        // fills the overlay sampler slots (units 2/3 must stay valid even
-        // with the overlay branch off).
+        // Terrain. The overlay (when on) paints the selected accumulated
+        // field as a heatmap ON the terrain, sampling the solver's live
+        // accumulator textures (units 2/3). Off: bind the bed there so the
+        // samplers stay valid (the branch is skipped anyway).
+        const ht = overlay ? solver.hazardTextures : null;
         gl.useProgram(this.terrainProg);
         gl.uniformMatrix4fv(this._t.view, false, view);
         gl.uniformMatrix4fv(this._t.proj, false, proj);
         gl.uniform3f(this._t.sun, sunDir[0], sunDir[1], sunDir[2]);
+        if (overlay && ht) {
+            const f = overlay.field;
+            const { nstops, t, c } = rampUniforms(f);
+            gl.uniform1i(this._t.overlay, 1);
+            gl.uniform1i(this._t.ovChannel, f.channel);
+            gl.uniform1i(this._t.ovEverywhere, f.everywhere ? 1 : 0);
+            gl.uniform2f(this._t.ovRange, overlay.range[0], overlay.range[1]);
+            gl.uniform1i(this._t.ovNstops, nstops);
+            gl.uniform1fv(this._t.ovStopT, t);
+            gl.uniform3fv(this._t.ovStopC, c);
+        } else {
+            gl.uniform1i(this._t.overlay, 0);
+        }
         gl.activeTexture(gl.TEXTURE0);
         gl.bindTexture(gl.TEXTURE_2D, solver.bedTexture);
         gl.activeTexture(gl.TEXTURE2);
-        gl.bindTexture(gl.TEXTURE_2D, solver.bedTexture);
+        gl.bindTexture(gl.TEXTURE_2D, ht ? ht.acc0 : solver.bedTexture);
         gl.activeTexture(gl.TEXTURE3);
-        gl.bindTexture(gl.TEXTURE_2D, solver.bedTexture);
+        gl.bindTexture(gl.TEXTURE_2D, ht ? ht.acc1 : solver.bedTexture);
         gl.activeTexture(gl.TEXTURE4);
         gl.bindTexture(gl.TEXTURE_2D, this.zeroTex);
         gl.bindVertexArray(this.vao);

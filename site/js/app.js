@@ -12,6 +12,8 @@ import { assessTown, damageColorCss, damageColorRgb } from "./losses.js";
 import { assessCasualties, nearestRefuges, defaultEvacuationParams } from "./casualties.js";
 import { OrbitCamera } from "./camera.js";
 import { Scene3D } from "./scene3d.js";
+import { HAZARD_FIELDS, FIELD_BY_KEY, rampCss, rampUniforms, legendLabels } from "./intensity.js";
+import { arrivalRange } from "./hazard.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -42,10 +44,24 @@ async function main() {
         range: gl.getUniformLocation(displayProg, "u_range_m"),
         uv0: gl.getUniformLocation(displayProg, "u_uv0"),
         uv1: gl.getUniformLocation(displayProg, "u_uv1"),
+        overlay: gl.getUniformLocation(displayProg, "u_overlay"),
+        ovChannel: gl.getUniformLocation(displayProg, "u_ov_channel"),
+        ovEverywhere: gl.getUniformLocation(displayProg, "u_ov_everywhere"),
+        ovRange: gl.getUniformLocation(displayProg, "u_ov_range"),
+        ovNstops: gl.getUniformLocation(displayProg, "u_ov_nstops"),
+        ovStopT: gl.getUniformLocation(displayProg, "u_ov_stop_t"),
+        ovStopC: gl.getUniformLocation(displayProg, "u_ov_stop_c"),
     };
     gl.useProgram(displayProg);
     gl.uniform1i(dUni.bed, 0);
     gl.uniform1i(dUni.state, 1);
+    gl.uniform1i(gl.getUniformLocation(displayProg, "u_ov_max"), 2);
+    gl.uniform1i(gl.getUniformLocation(displayProg, "u_ov_max2"), 3);
+    // Valid ramp defaults so the samplers/arrays are never uninitialized.
+    gl.uniform1i(dUni.overlay, 0);
+    gl.uniform1i(dUni.ovNstops, 2);
+    gl.uniform1fv(dUni.ovStopT, [0, 1, 1, 1, 1, 1]);
+    gl.uniform3fv(dUni.ovStopC, new Float32Array(18));
     const quad = createQuad(gl);
 
     // The town (phase 2): frozen data shared by all three scenarios. A
@@ -82,6 +98,61 @@ async function main() {
     let assessTick = 0;        // frame counter for the 30-frame cadence
     let daytime = true;        // day/night occupancy toggle
     const evacParams = defaultEvacuationParams();
+
+    // Hazard overlay (M9): null = off, else a HAZARD_FIELDS entry. Drives
+    // BOTH the 2D map (display.frag branch) and the 3D terrain
+    // (terrain.frag branch) from one control + one legend.
+    let overlayField = null;
+    let ovRange = [0, 1];      // effective (vmin, vmax); arrival auto-fits
+
+    const ANOM_TITLE = "Sea-surface anomaly (m above/below normal)";
+    function updateLegend() {
+        const title = document.querySelector("#colorbar .title");
+        const bar = document.querySelector("#colorbar .bar");
+        const labels = document.querySelector("#colorbar .labels");
+        if (!overlayField) {
+            title.textContent = ANOM_TITLE;
+            bar.style.background = "";     // restore the CSS anomaly gradient
+            labels.innerHTML = "<span>−2 m</span><span>0</span><span>+2 m</span>";
+            return;
+        }
+        title.textContent = `${overlayField.name} (${overlayField.unit})`;
+        bar.style.background = rampCss(overlayField);
+        const [lo, hi] = legendLabels(overlayField, ovRange[0], ovRange[1]);
+        labels.innerHTML = `<span>${lo}</span><span>${hi}</span>`;
+    }
+
+    // Arrival auto-ranges to the field (near- vs far-field differ ~100x).
+    // Refreshed through getHazardFields() — the accessor, one readback, at
+    // the assessment cadence. The other fields have fixed ranges.
+    function refreshOverlayRange() {
+        if (!overlayField) return;
+        if (overlayField.vrange) { ovRange = overlayField.vrange; return; }
+        if (solver) {
+            const r = arrivalRange(getHazardFields(solver));
+            if (r) ovRange = r;
+        }
+    }
+
+    // Push the field's static ramp + channel to the display program once
+    // per selection (the range updates per-frame for arrival).
+    function applyOverlayUniforms() {
+        if (!overlayField) return;
+        const { nstops, t, c } = rampUniforms(overlayField);
+        gl.useProgram(displayProg);
+        gl.uniform1i(dUni.ovChannel, overlayField.channel);
+        gl.uniform1i(dUni.ovEverywhere, overlayField.everywhere ? 1 : 0);
+        gl.uniform1i(dUni.ovNstops, nstops);
+        gl.uniform1fv(dUni.ovStopT, t);
+        gl.uniform3fv(dUni.ovStopC, c);
+    }
+
+    function setOverlay(key) {
+        overlayField = key ? FIELD_BY_KEY[key] : null;
+        refreshOverlayRange();
+        applyOverlayUniforms();
+        updateLegend();
+    }
 
     // 3D view (M8): one camera for the session, one scene per grid shape.
     // The scene holds no solver reference — render() takes the live solver
@@ -219,7 +290,13 @@ async function main() {
                          setDaytime: (d) => { daytime = d; },
                          camera, setView3d: (v) => setView3d(v),
                          getScene3d: () => scene3d,
+                         setOverlay: (k) => { setOverlay(k); draw(); },
+                         getOverlay: () => (overlayField ? overlayField.key : null),
+                         getOvRange: () => ovRange,
                          triggerEvent: () => triggerEvent(0) };
+        // Overlay persists across scenarios (it's a display mode); refresh
+        // its range/legend for the new solver's (empty) accumulator.
+        if (overlayField) { refreshOverlayRange(); updateLegend(); }
         $("status").textContent =
             `${id} ready — calm ocean, ${solver.n}x${solver.n} grid. ` +
             `Run triggers the event.`;
@@ -281,9 +358,12 @@ async function main() {
     }
 
     function draw() {
+        const ov = overlayField
+            ? { field: overlayField, range: ovRange } : null;
         if (view3d && scene3d) {
             syncBacking3d();
-            scene3d.render(solver, camera, canvas.width, canvas.height);
+            scene3d.render(solver, camera, canvas.width, canvas.height,
+                           undefined, ov);
             overlay.render(null);   // clear the 2D building rects/inset chrome
             return;
         }
@@ -293,6 +373,20 @@ async function main() {
         gl.uniform1f(dUni.range, 2.0);   // +-2 m anomaly, like the ref PNGs
         gl.uniform2f(dUni.uv0, 0.0, 0.0);   // whole domain
         gl.uniform2f(dUni.uv1, 1.0, 1.0);
+        // Hazard overlay: flag + current range; bind the live accumulator
+        // textures (units 2/3) the shader samples. Static ramp/channel were
+        // set in applyOverlayUniforms() at selection time.
+        gl.uniform1i(dUni.overlay, ov ? 1 : 0);
+        if (ov) {
+            gl.uniform2f(dUni.ovRange, ovRange[0], ovRange[1]);
+            const ht = solver.hazardTextures;
+            if (ht) {
+                gl.activeTexture(gl.TEXTURE2);
+                gl.bindTexture(gl.TEXTURE_2D, ht.acc0);
+                gl.activeTexture(gl.TEXTURE3);
+                gl.bindTexture(gl.TEXTURE_2D, ht.acc1);
+            }
+        }
         gl.activeTexture(gl.TEXTURE0);
         gl.bindTexture(gl.TEXTURE_2D, solver.bedTexture);
         gl.activeTexture(gl.TEXTURE1);
@@ -333,7 +427,15 @@ async function main() {
             // one final assessment when the sim pauses/settles so a paused
             // frame shows the finished toll, not a stale one.
             if (!sim.paused && solver.timeS > 0) {
-                if (assessTick % 30 === 0) assessDamage();
+                if (assessTick % 30 === 0) {
+                    assessDamage();
+                    // Arrival auto-ranges as the field grows; refresh its
+                    // legend on the same cadence (fixed-range fields no-op).
+                    if (overlayField && !overlayField.vrange) {
+                        refreshOverlayRange();
+                        updateLegend();
+                    }
+                }
                 assessTick++;
             }
             draw();
@@ -365,6 +467,17 @@ async function main() {
     }
     sel.value = SCENARIOS[0].id;
     sel.addEventListener("change", () => setScenario(sel.value).catch(e => fatal(e.message)));
+
+    // Hazard-overlay picker: None + the four accumulated fields. Drives the
+    // 2D map and the 3D terrain from the same selection + legend.
+    const ovSel = $("overlaySel");
+    for (const [val, label] of [["", "None"],
+                                ...HAZARD_FIELDS.map(f => [f.key, f.name])]) {
+        const opt = document.createElement("option");
+        opt.value = val; opt.textContent = label;
+        ovSel.appendChild(opt);
+    }
+    ovSel.addEventListener("change", () => { setOverlay(ovSel.value || null); draw(); });
     $("run").addEventListener("click", () => {
         if (!sim || pendingFire) return;   // ignore clicks during the beat
         if (armed) { triggerEvent(); return; }

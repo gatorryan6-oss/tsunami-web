@@ -54,6 +54,56 @@ Entry format:
 
 (entries accumulate here, newest first)
 
+## 2026-07-17 — M9: hazard-overlay toggles (2D map + 3D terrain)
+- Shipped: the four accumulated hazard fields as toggleable heatmaps on
+  BOTH views, from one control + one legend. `js/intensity.js` — the JS
+  mirror of the desktop core/hazard/intensity.py HAZARD_FIELDS: the single
+  source of the overlay ramps, ranges, units, and paint domains (depth
+  0.05–8 m land-only, speed 0–8 m/s land-only, momentum 0–200 m³/s²
+  land-only, arrival auto-ranged everywhere-the-wave-reached), plus
+  rampCss (legend gradient), rampUniforms (shader arrays), legendLabels
+  (arrival shown in minutes). An "Overlay" `<select>` (None + the four
+  fields) drives `setOverlay()`; the #colorbar legend swaps its title,
+  gradient, and end labels to the active field (and restores the anomaly
+  ramp on None). 2D: `display.frag` gains an overlay branch (same channel
+  select + hazard_ramp as the 3D terrain) that REPLACES the base map where
+  the field is valid + in-domain. 3D: the `terrain.frag` overlay branch —
+  ported dormant back in M8a — is now wired in `scene3d.render(…, overlay)`
+  to the SAME field spec + range, so both views paint one field
+  identically. Both sample the solver's LIVE accumulator textures via a
+  new display accessor `solver.hazardTextures` ({acc0, acc1}) — GPU-to-GPU,
+  zero readback; the damage/casualty MODELS still consume through
+  getHazardFields() (the accessor contract is intact — this is the
+  display path the desktop's terrain_render uses too). Arrival's
+  auto-range refreshes through getHazardFields()/arrivalRange() at the
+  30-frame cadence.
+- Verified (fresh self-contained modules on the live context; the app
+  boots cached shaders in this pane, so tested by compiling the current
+  display.frag + a directly-built fresh solver): at a flooded town cell
+  (depth 5.83 m, bed 2.93 m) the four overlays paint DISTINCT, physically-
+  correct ramp colors — depth (221,37,25) red-violet [matches the hand-
+  calc at t=0.727], speed (61,31,209) blue-violet (fast), momentum
+  (71,0,66) deep purple (high drag), arrival (79,196,103) green (arrived
+  late at the town) — vs the anomaly base (198,47,31). 3D: depth overlay
+  changes 37.5% of pixels (the inundated LAND), arrival 83.3% (ocean +
+  land — the everywhere domain), exactly the field domains. Legend swaps
+  correct for every field. GL error 0. **Parity re-verified (solver.js
+  gained only the additive getter): scenario C identical to baseline —
+  t=0 exactly 0.0, L∞ ≤1.82e-5, extent Jaccard 0.** invariants 18/18
+  (hazard boundary intact — hazardTextures is not a readback), verify.py
+  PASS.
+- Deferred: the polarity-flip decision (BUILDLOG 2026-07-17) is about the
+  ANOMALY ramp, not these overlays — the arrival ramp is already
+  red=soonest by design; no flip needed here.
+- Open bugs: none. (Dev-pane note persists: cached shaders/modules — the
+  app boots the HTTP-cached display.frag/solver.js; a fresh visitor /
+  hard-refresh gets the overlay. Fresh-import self-contained testing is
+  the reliable local check.)
+- Decisions: overlay = a shared display MODE (2D + 3D from one control);
+  replace-while-active on the 2D map (chosen — two colormaps at once are
+  unreadable); the overlay samples accumulator textures directly (display
+  path), distinct from the getHazardFields() model path.
+
 ## 2026-07-17 — M8c: the town in 3D (instanced buildings + damage tint) — 3D view complete
 - Shipped: `shaders/building.vert+frag` (ports of the desktop originals;
   explicit `layout(location=N)` qualifiers replace moderngl's name-based
