@@ -54,6 +54,42 @@ Entry format:
 
 (entries accumulate here, newest first)
 
+## 2026-07-17 — M9.x: regional early warning (the EWS lesson, closes the M7 gap)
+- Shipped: the deferred regional early-warning refinement — a "🚨 Warning"
+  toggle that makes the difference between everyone-out and no-one-out for
+  a DISTANT source, and near-nothing for a near-field quake. `js/events.js`
+  (distillation of the desktop core/events/catalog.py): per-scenario source
+  nature + the desktop's `_assessment_evac()` rule via `evacTimingFor()` —
+  detection = EWS ? 30 s : the event's unwarned delay; and the casualty
+  clock starts at the RUPTURE. Scenario B = regional (350 km / 3.5 km-deep,
+  unwarned 2400 s); its wave enters the map at t=0, so the rupture sits at
+  t_quake = −travel_time (−1889 s), crediting the same warning window the
+  desktop gets by delaying the physics. Scenario C = near-field (t_quake 0,
+  unwarned 180 s); A = offshore (no town relevance). app.js: `ewsOn` state
+  + toggle (re-assesses casualties, like day/night); the casualty readout
+  now names the mode ("no warning system" / "early warning ON"). The
+  evac timing is chosen per scenario + EWS state in assessDamage.
+- Verified: contract page **32/32** (+3 regional-canon checks) — the
+  browser reproduces desktop-computed regional casualties (unwarned 2408 /
+  EWS 785 on the synthetic fields) to machine epsilon, EWS-cuts-deaths
+  pinned. LIVE IN-APP on the real physics: **scenario B (regional) — EWS
+  off 974 dead / evac 45% → EWS on 0 dead / evac 100%** (matches the
+  desktop's measured 1066→0: "warning, not walls, saves lives here").
+  **Scenario C (near-field) — EWS off 2417 → on 2416 (0% reduction)**: no
+  siren beats the near-field water — the essential counterpoint. invariants
+  18/18, verify.py PASS. No physics/shared-shader changes (events.js +
+  app-wiring + canon/contract only), so parity stands.
+- Deferred: nothing for this thread — the early-warning lesson is complete
+  both directions. (The desktop's $-cost EWS *defense* + budget system is a
+  separate Phase-B feature never ported; the web models the EWS as a free
+  teaching toggle, the right call without the economy.)
+- Open bugs: none.
+- Decisions: EWS as a toggle (not a purchase — the web port has no budget
+  system); regional t_quake = −travel_time (shift the clock origin rather
+  than delay the physics — identical warning window, keeps scenario B's
+  frozen reference intact); the EWS toggle applies to all scenarios so the
+  near-field "it doesn't help" is itself visible.
+
 ## 2026-07-17 — M9: hazard-overlay toggles (2D map + 3D terrain)
 - Shipped: the four accumulated hazard fields as toggleable heatmaps on
   BOTH views, from one control + one legend. `js/intensity.js` — the JS

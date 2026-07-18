@@ -292,4 +292,29 @@ async function phase2CanonChecks(check) {
     check(canon.expected_casualties.night.fatalities >
           canon.expected_casualties.day.fatalities,
           "casualty canon: night is deadlier than day (the day/night lesson)");
+
+    // --- Regional early-warning cases (M9.x): the SAME assessCasualties
+    // with a rupture BEFORE the field's first arrival (t_quake < 0) and the
+    // two detection delays the EWS toggle switches. Pins the negative-
+    // t_quake + detection wiring; day mode.
+    const rg = canon.expected_casualties_regional;
+    if (rg) {
+        for (const [tag, blk] of [["unwarned", rg.unwarned], ["ews", rg.ews]]) {
+            const pr = { ...p, detectionDelayS: blk.detection_delay_s,
+                         reactionDelayS: rg.reaction_delay_s };
+            const rep = assessCasualties(town, grid, bed, hazard, pr, true,
+                                         refuges, rg.t_quake_s);
+            let maxErr = 0;
+            for (let k = 0; k < rep.perBuilding.length; k++) {
+                maxErr = Math.max(maxErr,
+                    Math.abs(rep.perBuilding[k] - blk.per_building[k]));
+            }
+            check(maxErr < 1e-9 && Math.abs(rep.fatalities - blk.fatalities) < 1e-6,
+                  `casualty canon (regional ${tag}): ${Math.round(rep.fatalities)} dead ` +
+                  `· evac ${(100 * rep.evacSuccess).toFixed(0)}% match desktop ` +
+                  `(t_quake ${rg.t_quake_s.toFixed(0)}s, det ${blk.detection_delay_s}s)`);
+        }
+        check(rg.ews.fatalities < rg.unwarned.fatalities,
+              "casualty canon: early warning cuts regional deaths (the EWS lesson)");
+    }
 }

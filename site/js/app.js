@@ -10,6 +10,7 @@ import { TownOverlay, computeInsetWindow, uvWindow } from "./overlay.js";
 import { getHazardFields } from "./hazard.js";
 import { assessTown, damageColorCss, damageColorRgb } from "./losses.js";
 import { assessCasualties, nearestRefuges, defaultEvacuationParams } from "./casualties.js";
+import { evacTimingFor, SCENARIO_EVENTS } from "./events.js";
 import { OrbitCamera } from "./camera.js";
 import { Scene3D } from "./scene3d.js";
 import { HAZARD_FIELDS, FIELD_BY_KEY, rampCss, rampUniforms, legendLabels } from "./intensity.js";
@@ -97,6 +98,7 @@ async function main() {
     let refuges = null;        // cached per terrain epoch (post-fire bed)
     let assessTick = 0;        // frame counter for the 30-frame cadence
     let daytime = true;        // day/night occupancy toggle
+    let ewsOn = false;         // early-warning system on/off (M9.x)
     const evacParams = defaultEvacuationParams();
 
     // Hazard overlay (M9): null = off, else a HAZARD_FIELDS entry. Drives
@@ -212,12 +214,19 @@ async function main() {
         $("damage").classList.toggle("hit", r.lossPct >= 1.0);
 
         // Refuges depend only on the (post-event) bed — compute once per
-        // terrain epoch and reuse across cadence ticks and day/night flips.
+        // terrain epoch and reuse across cadence ticks and day/night flips
+        // (refuge geometry is independent of the detection/EWS knobs).
         if (!refuges) refuges = nearestRefuges(town, townGrid, solver.b, evacParams);
-        // t_quake = null: the wave's own first arrival (near-field-correct;
-        // scenario b's regional warning window is a documented M7 limitation).
+        // Early-warning: the detection delay and the rupture time depend on
+        // the source (near-field vs regional) and the EWS toggle — the
+        // desktop _assessment_evac() rule. A regional source's rupture
+        // precedes the wave's map entry (t_quake < 0), which is what credits
+        // the long warning window a distant quake buys (the EWS lesson).
+        const timing = evacTimingFor(scenarioData.id, ewsOn);
+        evacParams.detectionDelayS = timing.detection;
         casualtyReport = assessCasualties(town, townGrid, solver.b, hz,
-                                          evacParams, daytime, refuges, null);
+                                          evacParams, daytime, refuges,
+                                          timing.tQuake);
         renderCasualtyLine();
     }
 
@@ -225,8 +234,10 @@ async function main() {
         const c = casualtyReport;
         if (!c) { $("casualty").textContent = ""; return; }
         const mode = daytime ? "Day" : "Night";
+        const warn = ewsOn ? "early warning ON" : "no warning system";
         $("casualty").textContent =
-            `Casualties (${mode.toLowerCase()}): ~${Math.round(c.fatalities).toLocaleString("en-US")} dead, ` +
+            `Casualties (${mode.toLowerCase()}, ${warn}): ` +
+            `~${Math.round(c.fatalities).toLocaleString("en-US")} dead, ` +
             `~${Math.round(c.injuries).toLocaleString("en-US")} hurt of ` +
             `${c.present.toLocaleString("en-US")} present · ` +
             `evacuation ${(100 * c.evacSuccess).toFixed(0)}%`;
@@ -288,6 +299,8 @@ async function main() {
                          assessDamage, getDamageReport: () => damageReport,
                          getCasualtyReport: () => casualtyReport,
                          setDaytime: (d) => { daytime = d; },
+                         setEws: (v) => { ewsOn = v; if (typeof updateEwsButton === "function") updateEwsButton(); },
+                         getEws: () => ewsOn,
                          camera, setView3d: (v) => setView3d(v),
                          getScene3d: () => scene3d,
                          setOverlay: (k) => { setOverlay(k); draw(); },
@@ -504,6 +517,22 @@ async function main() {
             renderCasualtyLine();      // nothing fired yet: just the label
         }
     });
+
+    // Early-warning system: buoys + sirens that detect the source fast. It
+    // barely helps a near-field quake (the wave beats any siren) but is
+    // decisive for a REGIONAL source (a distant quake with a long travel
+    // window the town would otherwise squander) — the regional EWS lesson.
+    function updateEwsButton() {
+        $("ews").textContent = ewsOn ? "🚨 Warning: ON" : "🚨 Warning: off";
+        $("ews").classList.toggle("on", ewsOn);
+    }
+    $("ews").addEventListener("click", () => {
+        ewsOn = !ewsOn;
+        updateEwsButton();
+        if (casualtyReport && solver) assessDamage();
+        else renderCasualtyLine();
+    });
+    updateEwsButton();
 
     // 2D map <-> 3D scene. One page, one running sim; only the render
     // path changes. The 2D map keeps its exact 513² backing; 3D renders
