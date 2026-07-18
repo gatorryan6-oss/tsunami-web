@@ -850,3 +850,26 @@ lesson is about (watch the sea come in). Display-only.
 - Verified live: eye lands seaward of the town at z=2 looking due west
   [-1,0,0], waveExagg 1, renders a horizon (blue sky over sea/beach),
   look + walk both respond, glError 0.
+
+## 2026-07-18 — Beach view fixes: stand at the waterline, no sky-tilt (Opus)
+
+User feedback on the beach view: stood too far from the water, selecting a
+scenario tipped the gaze up at the sky, and the wave underwhelmed.
+
+- **Stand at the true shoreline**: `beachStandingPoint()` reads the CPU bed
+  (solver.b) and walks west along the town's row to the water's edge,
+  standing on the last DRY cell on solid ground. Was a blind `cx - r - 300`
+  that landed ~645 m offshore on the shallow shelf (so you looked across
+  transparent shelf water — reads as tan seabed — to a distant sea). Now
+  you're at the water's edge and the shoaled wave runs UP the beach at you.
+- **Scenario-select no longer pans to the sky**: setScenario framed the
+  town (pitch 40) unconditionally; in beach mode that hijacked the gaze.
+  It now re-stands on the new scenario's shore (`enterBeachAt()`) when in
+  beach mode instead of framing.
+- Verified live: eye lands on the dry cell at the waterline (bed +0.35 m,
+  sea one cell west, land one cell east); switching to the earthquake keeps
+  the gaze level (pitch 0, still beach) and re-stands; a driven run floods
+  8.5 m over the beach as white foam at the viewpoint.
+- KNOWN/OPEN: the calm shallow sea still renders tan (clear water over the
+  wide gentle shelf shows the sand) — a water-shader appearance question,
+  not position; flagged for a follow-up (would touch the shared water.frag).

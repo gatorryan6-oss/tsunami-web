@@ -414,10 +414,17 @@ async function main() {
         // Frame the camera on the town (the desktop's startup framing:
         // ~2.6x the town radius, afternoon-lit from the southwest).
         if (town) {
-            const fp = town.footprint();
-            camera.frame([fp.cx, fp.cy, 0],
-                         Math.max(9_000, Math.min(30_000, fp.r * 2.6)),
-                         -120, 40);
+            if (beachView) {
+                // Re-stand on THIS scenario's shore instead of framing the
+                // town — otherwise the town-framing yaw/pitch would hijack
+                // the beach gaze and tip it up at the sky (bug fix).
+                enterBeachAt();
+            } else {
+                const fp = town.footprint();
+                camera.frame([fp.cx, fp.cy, 0],
+                             Math.max(9_000, Math.min(30_000, fp.r * 2.6)),
+                             -120, 40);
+            }
         }
         // Debug/console handle (also used by automated checks).
         window.__app = { solver, sim, scenarioData, town, overlay, draw,
@@ -688,6 +695,31 @@ async function main() {
     // Beach view: stand on the shore at eye height and watch the sea come
     // in at TRUE height (1x, no exaggeration) — the view the whole lesson
     // is about. It's a first-person camera mode on top of the 3D scene.
+
+    /** Find the water's edge in front of the town and return where to
+     *  stand: the last DRY cell on the town's row before the sea, so you
+     *  look OUT over the water (not across a shelf) and the shoaled wave
+     *  runs up the beach toward you. Reads the CPU bed (solver.b), so the
+     *  eye sits on solid ground at the true shoreline of THIS scenario. */
+    function beachStandingPoint() {
+        const g = scenarioData.params.grid;
+        const n = g.n, dx = g.dx_m, xmin = -g.domain_m / 2, ymin = -g.domain_m / 2;
+        const bed = solver.b;
+        const fp = town.footprint();
+        const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+        const j = clamp(Math.round((fp.cy - ymin) / dx), 0, n - 1);
+        let i = clamp(Math.round((fp.cx - xmin) / dx), 0, n - 1);
+        // Walk WEST (toward the sea) until we step below sea level.
+        while (i > 1 && bed[j * n + i] >= 0.0) i--;
+        const iStand = Math.min(n - 1, i + 1);   // last dry cell = water's edge
+        return { x: xmin + iStand * dx, y: fp.cy,
+                 groundZ: Math.max(bed[j * n + iStand], 0.0) };
+    }
+    function enterBeachAt() {
+        const p = beachStandingPoint();
+        camera.enterBeach(p.x, p.y, p.groundZ, 180.0);  // yaw 180 = look west
+        if (scene3d) scene3d.waveExagg = 1.0;           // real wave height
+    }
     function exitBeachState() {
         beachView = false;
         camera.exitBeach();
@@ -698,13 +730,7 @@ async function main() {
         if (!on) { exitBeachState(); draw(); return; }
         if (!view3d) setView3d(true);            // beach is a 3D camera
         beachView = true;
-        // Stand a step seaward of the town core at the waterline (z 0),
-        // looking out to sea. Sea is to the west (-x, yaw 180) in every
-        // current scenario; a future coast on another side would set this
-        // from the bed instead.
-        const fp = town ? town.footprint() : { cx: 0, cy: 0, r: 2000 };
-        camera.enterBeach(fp.cx - fp.r - 300, fp.cy, 0.0, 180.0);
-        if (scene3d) scene3d.waveExagg = 1.0;    // real wave height
+        enterBeachAt();
         $("beachview").textContent = "Exit beach";
         draw();
     }
