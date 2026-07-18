@@ -11,6 +11,7 @@ import { getHazardFields } from "./hazard.js";
 import { assessTown, damageColorCss, damageColorRgb } from "./losses.js";
 import { assessCasualties, nearestRefuges, defaultEvacuationParams } from "./casualties.js";
 import { evacTimingFor, SCENARIO_EVENTS } from "./events.js";
+import { SCENARIO_RATE, returnPeriodYr, annualize, EWS_COST_USD, fmtUsd } from "./economy.js";
 import { OrbitCamera } from "./camera.js";
 import { Scene3D } from "./scene3d.js";
 import { HAZARD_FIELDS, FIELD_BY_KEY, rampCss, rampUniforms, legendLabels } from "./intensity.js";
@@ -104,6 +105,13 @@ async function main() {
     let daytime = true;        // day/night occupancy toggle
     let ewsOn = false;         // early-warning system on/off (M9.x)
     const evacParams = defaultEvacuationParams();
+
+    // Economic risk bank (M11): each scenario's settled outcome, banked as
+    // it is run — property loss + deaths in all day/night × warned/unwarned
+    // combos, so the annualized risk table re-prices instantly on any
+    // toggle without re-running. Keyed by scenario id; accumulates across
+    // scenarios (the "portfolio you build by facing each event").
+    const riskBank = {};
 
     // Hazard overlay (M9): null = off, else a HAZARD_FIELDS entry. Drives
     // BOTH the 2D map (display.frag branch) and the 3D terrain
@@ -234,6 +242,31 @@ async function main() {
                                           evacParams, daytime, refuges,
                                           timing.tQuake);
         renderCasualtyLine();
+
+        // Bank this scenario's economic outcome for the risk table: the
+        // property loss (EWS/day-night independent) plus deaths in all four
+        // day/night × warned/unwarned combos — re-assessed from the SAME
+        // hazard fields (no re-run), so day/night and warning toggles
+        // re-price the whole annualized table instantly. t_quake depends
+        // only on the source kind, not the EWS state.
+        const tqWarned = evacTimingFor(scenarioData.id, true);
+        const tqUnwarned = evacTimingFor(scenarioData.id, false);
+        const deathsFor = (day, det, tq) => {
+            evacParams.detectionDelayS = det;
+            return assessCasualties(town, townGrid, solver.b, hz, evacParams,
+                                    day, refuges, tq).fatalities;
+        };
+        riskBank[scenarioData.id] = {
+            loss: r.totalLoss,
+            deaths: {
+                day: { warned: deathsFor(true, tqWarned.detection, tqWarned.tQuake),
+                       unwarned: deathsFor(true, tqUnwarned.detection, tqUnwarned.tQuake) },
+                night: { warned: deathsFor(false, tqWarned.detection, tqWarned.tQuake),
+                         unwarned: deathsFor(false, tqUnwarned.detection, tqUnwarned.tQuake) },
+            },
+        };
+        evacParams.detectionDelayS = timing.detection;   // restore
+        renderRiskPanel();
     }
 
     // The conditions the casualty numbers were priced under — shown in the
@@ -266,6 +299,64 @@ async function main() {
         $("cardEvac").classList.toggle("good", e >= 70);
         $("cardEvac").classList.toggle("warn", e >= 30 && e < 70);
         $("cardEvac").classList.toggle("bad", e < 30);
+    }
+
+    // The economic risk table (M11): "design for which wave?" — annualized
+    // deaths and property loss across every event you've faced, and what
+    // the early-warning system buys per year. Dollars and lives stay on
+    // SEPARATE axes; lives are never monetized.
+    function renderRiskPanel() {
+        const body = $("riskBody");
+        const rows = [];
+        let annDeaths = 0, annDeathsNoEws = 0, annDeathsEws = 0, annLoss = 0;
+        let anyBanked = false;
+        for (const s of SCENARIOS) {
+            const period = returnPeriodYr(s.id);
+            const b = riskBank[s.id];
+            const name = s.label;
+            if (!b) {
+                rows.push(`<tr><td>${name}</td><td>1 in ${period} yr</td>` +
+                          `<td class="dim" colspan="2">— run it —</td></tr>`);
+                continue;
+            }
+            anyBanked = true;
+            const mode = daytime ? "day" : "night";
+            const dHere = b.deaths[mode][ewsOn ? "warned" : "unwarned"];
+            const dNoEws = b.deaths[mode].unwarned;
+            const dEws = b.deaths[mode].warned;
+            annDeaths += annualize(s.id, dHere);
+            annDeathsNoEws += annualize(s.id, dNoEws);
+            annDeathsEws += annualize(s.id, dEws);
+            annLoss += annualize(s.id, b.loss);
+            const perDeaths = Math.round(dHere).toLocaleString("en-US");
+            const annD = annualize(s.id, dHere);
+            const annDtxt = annD >= 0.1 ? annD.toFixed(1) : annD.toFixed(2);
+            rows.push(
+                `<tr><td>${name}</td><td>1 in ${period} yr</td>` +
+                `<td>${perDeaths} · ${fmtUsd(b.loss)}</td>` +
+                `<td>${annDtxt} · ${fmtUsd(annualize(s.id, b.loss))}</td></tr>`);
+        }
+        body.innerHTML = rows.join("");
+        if (!anyBanked) {
+            $("riskTotal").innerHTML =
+                `<span class="dim">Run each scenario to build your risk ` +
+                `profile — the annualized toll appears here.</span>`;
+            $("riskEws").textContent = "";
+            return;
+        }
+        $("riskTotal").innerHTML =
+            `<b>Expected per year</b> (across events faced): ` +
+            `<b>${annDeaths.toFixed(1)}</b> deaths · <b>${fmtUsd(annLoss)}</b> loss`;
+        // The EWS cost-benefit: it cuts the annualized DEATHS (by fixing the
+        // frequent regional), but never the property loss — warning saves
+        // lives, not buildings.
+        const prevented = annDeathsNoEws - annDeathsEws;
+        $("riskEws").innerHTML =
+            `🚨 <b>Early warning — ${fmtUsd(EWS_COST_USD)} once:</b> ` +
+            `annualized deaths ${annDeathsNoEws.toFixed(1)}/yr → ` +
+            `<b>${annDeathsEws.toFixed(1)}/yr</b> ` +
+            `(prevents ~${prevented.toFixed(1)} deaths a year). ` +
+            `Property loss unchanged — warning saves lives, not buildings.`;
     }
 
     /** Blank the outcome cards for a fresh scenario (population persists —
@@ -343,6 +434,7 @@ async function main() {
         // Overlay persists across scenarios (it's a display mode); refresh
         // its range/legend for the new solver's (empty) accumulator.
         if (overlayField) { refreshOverlayRange(); updateLegend(); }
+        renderRiskPanel();   // show the new scenario's row (run it to bank)
         $("status").textContent =
             `${id} ready — calm ocean, ${solver.n}x${solver.n} grid. ` +
             `Run triggers the event.`;
@@ -554,6 +646,7 @@ async function main() {
             assessDamage();            // refresh casualties for the new mode
         } else {
             renderCasualtyLine();      // nothing fired yet: just the label
+            renderRiskPanel();         // re-price banked scenarios' rows
         }
     });
 
@@ -569,7 +662,7 @@ async function main() {
         ewsOn = !ewsOn;
         updateEwsButton();
         if (casualtyReport && solver) assessDamage();
-        else renderCasualtyLine();
+        else { renderCasualtyLine(); renderRiskPanel(); }
     });
     updateEwsButton();
 

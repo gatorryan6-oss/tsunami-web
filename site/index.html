@@ -87,6 +87,35 @@
   .card.bad .num { color: #ff8f8f; }
   .card.warn .num { color: #f0a868; }
   .card.good .num { color: #7deda0; }
+  /* Risk & cost: the economic step-back — annualized toll across every
+     event faced, and what the warning system buys per year. */
+  #risk {
+    width: min(92vw, 660px); margin: 4px 0 10px;
+    background: #161d26; border: 1px solid #232f3c; border-radius: 8px;
+    padding: 8px 12px 10px;
+  }
+  #risk .rtitle {
+    font-size: 0.78rem; color: #b7c6d6; margin-bottom: 6px;
+  }
+  #risk .rtitle b { color: #dce3ec; }
+  #risk table {
+    width: 100%; border-collapse: collapse; font-size: 0.76rem;
+    font-variant-numeric: tabular-nums;
+  }
+  #risk th {
+    text-align: left; color: #7d8fa3; font-weight: 500;
+    font-size: 0.64rem; letter-spacing: 0.06em; text-transform: uppercase;
+    padding: 2px 6px 4px; border-bottom: 1px solid #232f3c;
+  }
+  #risk th.n, #risk td.n { text-align: right; }
+  #risk td { padding: 3px 6px; color: #cdd7e2; }
+  #risk tbody tr + tr td { border-top: 1px solid #1c2530; }
+  #risk td.dim { color: #6d7f92; font-style: italic; }
+  #riskTotal { font-size: 0.78rem; color: #cdd7e2; margin: 7px 0 0;
+               padding-top: 6px; border-top: 1px solid #232f3c; }
+  #riskTotal b { color: #f0e2b0; }
+  #riskEws { font-size: 0.76rem; color: #b7c6d6; margin: 5px 0 0; }
+  #riskEws b { color: #f0c680; }
   /* 3D mode: the anomaly colorbar and the fixed scale bar describe the
      top-down map, not a perspective scene — hide them there. */
   body.view3d #legend { display: none; }
@@ -213,6 +242,18 @@
     <div class="num" id="evacNum">—</div>
     <div class="sub" id="evacSub">☀ day · no warning</div>
   </div>
+</div>
+<div id="risk">
+  <div class="rtitle"><b>Risk &amp; cost</b> — design for which wave? Risk is
+    consequence × how often it strikes.</div>
+  <table>
+    <thead><tr><th>Event</th><th>Frequency</th>
+      <th>Per event — deaths · loss</th>
+      <th>Per year — deaths · loss</th></tr></thead>
+    <tbody id="riskBody"></tbody>
+  </table>
+  <div id="riskTotal"></div>
+  <div id="riskEws"></div>
 </div>
 <div id="status">booting…</div>
 <div id="desc"></div>

@@ -54,6 +54,48 @@ Entry format:
 
 (entries accumulate here, newest first)
 
+## 2026-07-18 — M11: economic layer — annualized risk table + EWS cost-benefit
+- Scoped by user Q&A: cost-benefit + risk table, NO construction game;
+  return periods illustrative; dollars and lives annualized SEPARATELY
+  (never merged — no composite grade). Turns the outcomes the port already
+  computes into economic DECISIONS.
+- Shipped: `js/economy.js` (illustrative annual rates mapped from the
+  desktop catalog — A 1/30 yr common far pulse, B 1/75 yr the regional,
+  C 1/500 yr the near-field monster; EWS $15M; the annualize() math +
+  compact fmtUsd). A "Risk & cost — design for which wave?" panel below
+  the dashboard: a table (event · frequency · per-event deaths·loss ·
+  per-YEAR deaths·loss) that BANKS each scenario's outcome as it's run —
+  the property loss plus deaths in all four day/night × warned/unwarned
+  combos, re-assessed from the SAME hazard fields (no re-run), so the
+  ☀/☾ and 🚨 toggles re-price the whole annualized table INSTANTLY. A
+  total line (expected deaths/yr · $/yr across events faced) and the EWS
+  cost-benefit line.
+- The lesson, verified live: **B (regional) 974 deaths/event → 13.0/yr;
+  C (monster) 2,417/event → 4.8/yr** — the FREQUENT regional is the
+  bigger ANNUAL killer despite C being deadlier per event (risk =
+  consequence × frequency). The EWS line: "$15M once: annualized deaths
+  17.8/yr → 4.8/yr (prevents ~13/yr). Property loss unchanged — warning
+  saves lives, not buildings" — because the EWS fixes exactly the regional
+  that dominates the annual toll, and does nothing for C or for property.
+  Night re-prices instantly (B 1,591/event → 21.2/yr, total 28.6/yr,
+  EWS prevents 21.2/yr); EWS-on drops B to 0 and the total to 4.8/yr.
+  Empty state shows all three rows "1 in N yr · — run it —" with a
+  build-your-profile prompt.
+- Verified: annualized arithmetic exact (13.0 = 974/75, 4.8 = 2417/500,
+  21.2 = 1591/75), toggles re-price from banked combos with no re-run,
+  empty/partial states correct. invariants 18/18, verify.py PASS. Purely
+  additive display + arithmetic on the already-canon-verified damage/
+  casualty models — no physics, shaders, or model changes; parity stands.
+- Deferred: buildable defenses + budget (the "spend to protect" loop) —
+  the natural next economic dimension, and where the "property loss
+  unchanged by warning" line points (walls, not warning, save buildings).
+- Open bugs: none.
+- Decisions: LIVE-banked, not baked (the table shows YOUR runs' numbers,
+  matching the dashboard and the project's reproduce-don't-fabricate
+  ethos); all four day/night × warning combos banked per run so toggles
+  never require a re-run; lives never monetized (deaths/yr and $/yr on
+  separate lines).
+
 ## 2026-07-17 — M10: UI polish — dashboard cards + grouped controls (user-scoped)
 - Scoped by user Q&A: design for Chromebook AND projector (key numbers
   legible from the back row); readouts as DASHBOARD CARDS; controls as
