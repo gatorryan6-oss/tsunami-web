@@ -12,17 +12,27 @@
 import { perspective, lookAt } from "./mat4.js";
 
 const DEG = Math.PI / 180;
+const EYE_HEIGHT_M = 2.0;        // human eye height for the beach view
+const DEFAULT_FOV = 50.0;
 
 export class OrbitCamera {
     constructor(target = [0, 0, 0], distance = 90_000.0,
                 yawDeg = -120.0, pitchDeg = 35.0) {
         this._defaults = [target.slice(), distance, yawDeg, pitchDeg];
-        this.fovYDeg = 50.0;
+        this.fovYDeg = DEFAULT_FOV;
         this.far = 1_500_000.0;
         this.minDistance = 300.0;
         this.maxDistance = 500_000.0;
         this.minPitchDeg = 3.0;    // never quite reach the horizon...
         this.maxPitchDeg = 89.0;   // ...or straight overhead (both degenerate)
+        // "beach" = a first-person camera standing on the shore looking out
+        // to sea (eye fixed, yaw/pitch aim the gaze); "orbit" = the default
+        // map-scale orbit. In beach mode waves render at 1x (real height),
+        // set by the app, so the sea towers over you as it should.
+        this.mode = "orbit";
+        this.eye = [0, 0, 0];      // beach-mode eye position (world meters)
+        this.beachMinPitchDeg = -35.0;   // look down at the water at your feet
+        this.beachMaxPitchDeg = 60.0;    // ...up to the sky
         this.reset();
     }
 
@@ -32,6 +42,32 @@ export class OrbitCamera {
         this.distance = distance;
         this.yawDeg = yaw;
         this.pitchDeg = pitch;
+        this.mode = "orbit";
+        this.fovYDeg = DEFAULT_FOV;
+    }
+
+    /** Stand on the beach at (x, y) with the ground at groundZ, looking
+     *  along lookYawDeg (world compass angle). The eye rises EYE_HEIGHT_M
+     *  above the ground; the gaze starts level and mouse-look tilts it. */
+    enterBeach(x, y, groundZ, lookYawDeg) {
+        this.mode = "beach";
+        this.eye = [x, y, groundZ + EYE_HEIGHT_M];
+        this.yawDeg = lookYawDeg;
+        this.pitchDeg = 0.0;       // level gaze at the horizon
+        this.fovYDeg = 55.0;       // a touch wide for immersion
+    }
+
+    exitBeach() {
+        this.mode = "orbit";
+        this.fovYDeg = DEFAULT_FOV;
+    }
+
+    /** Unit gaze direction from yaw/pitch (beach mode). */
+    _lookDir() {
+        const yaw = this.yawDeg * DEG, pitch = this.pitchDeg * DEG;
+        return [Math.cos(pitch) * Math.cos(yaw),
+                Math.cos(pitch) * Math.sin(yaw),
+                Math.sin(pitch)];
     }
 
     /** Aim at a world point from a given distance — used to snap the view
@@ -50,8 +86,17 @@ export class OrbitCamera {
     // The three mouse motions. dx/dy arrive in CSS pixels, +dy = cursor
     // moved DOWN the screen. Sign choices are taste (match the desktop).
 
-    /** Left-drag: fly around the target. */
+    /** Left-drag: orbit the target, or (beach mode) turn the head — same
+     *  gesture, so the control feels identical in both views. */
     orbit(dx, dy) {
+        if (this.mode === "beach") {
+            this.yawDeg -= dx * 0.15;    // drag right -> look right
+            this.pitchDeg -= dy * 0.15;  // drag down -> look down
+            this.pitchDeg = Math.max(this.beachMinPitchDeg,
+                                     Math.min(this.beachMaxPitchDeg,
+                                              this.pitchDeg));
+            return;
+        }
         this.yawDeg -= dx * 0.3;
         this.pitchDeg -= dy * 0.3;
         this.pitchDeg = Math.max(this.minPitchDeg,
@@ -80,22 +125,33 @@ export class OrbitCamera {
      *  scales them by distance so a step feels the same at any zoom. */
     moveGround(forward, right) {
         const yaw = this.yawDeg * DEG;
-        const fx = -Math.cos(yaw), fy = -Math.sin(yaw);   // toward the horizon
+        // Beach mode heads WHERE YOU LOOK (+forward toward the gaze); orbit
+        // mode slides toward the horizon (-cos, -sin, the map convention).
+        const s = this.mode === "beach" ? 1 : -1;
+        const fx = s * Math.cos(yaw), fy = s * Math.sin(yaw);
         const rx = -Math.sin(yaw), ry = Math.cos(yaw);    // camera-right
-        this.target[0] += fx * forward + rx * right;
-        this.target[1] += fy * forward + ry * right;
+        const p = this.mode === "beach" ? this.eye : this.target;
+        p[0] += fx * forward + rx * right;
+        p[1] += fy * forward + ry * right;
     }
 
-    /** Scroll: move closer/farther. Multiplicative, so one notch feels the
-     *  same whether 1 km out or 100 km out. scrollY > 0 = zoom in. */
+    /** Scroll: dolly (orbit) or narrow the field of view like binoculars
+     *  (beach — you can't walk on water, so "zoom" magnifies instead). */
     zoom(scrollY) {
+        if (this.mode === "beach") {
+            this.fovYDeg = Math.max(12.0,
+                Math.min(70.0, this.fovYDeg * Math.pow(0.9, scrollY)));
+            return;
+        }
         this.distance *= Math.pow(0.9, scrollY);
         this.distance = Math.max(this.minDistance,
                                  Math.min(this.maxDistance, this.distance));
     }
 
-    /** World-space camera position from yaw/pitch/distance. */
+    /** World-space camera position from yaw/pitch/distance (orbit), or the
+     *  fixed eye (beach). */
     get position() {
+        if (this.mode === "beach") return this.eye.slice();
         const yaw = this.yawDeg * DEG, pitch = this.pitchDeg * DEG;
         return [
             this.target[0] + Math.cos(pitch) * Math.cos(yaw) * this.distance,
@@ -105,14 +161,23 @@ export class OrbitCamera {
     }
 
     viewMatrix() {
+        if (this.mode === "beach") {
+            const e = this.eye, d = this._lookDir();
+            return lookAt(e, [e[0] + d[0], e[1] + d[1], e[2] + d[2]],
+                          [0, 0, 1]);
+        }
         return lookAt(this.position, this.target, [0, 0, 1]);
     }
 
     projectionMatrix(aspect) {
-        // The near plane slides with zoom: depth precision is spent on the
-        // near:far ratio, so a fixed near either clips the ground up close
-        // or z-fights terrain-vs-water at the shoreline when zoomed out.
-        const near = Math.min(Math.max(this.distance * 0.02, 2.0), 2000.0);
+        // Beach mode: the water is right at your feet, so the near plane
+        // must be tight (a meter) — with the distance-based near below it
+        // would clip the wave. Orbit mode: near slides with zoom, spending
+        // depth precision on the near:far ratio (a fixed near either clips
+        // the ground up close or z-fights terrain-vs-water when zoomed out).
+        const near = this.mode === "beach"
+            ? 1.0
+            : Math.min(Math.max(this.distance * 0.02, 2.0), 2000.0);
         return perspective(this.fovYDeg, aspect, near, this.far);
     }
 }

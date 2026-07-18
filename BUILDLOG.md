@@ -829,3 +829,24 @@ Two display-only 3D tweaks (no physics, no parity impact), user-driven.
   zooming" — glide out over the ocean parallel to sea level, THEN zoom in
   on the blip. Right-drag pan (already present) is unchanged. Verified:
   moveGround translates 40 km with z held exactly.
+
+## 2026-07-18 — Beach view: first-person "stand on the shore" camera (Opus)
+
+A new 3D camera mode that puts the eye on the beach at human height,
+looking out to sea, with waves at TRUE height (1x) — the view the whole
+lesson is about (watch the sea come in). Display-only.
+
+- **camera.js**: OrbitCamera gains `mode` ("orbit" | "beach"). Beach mode
+  fixes the eye (`enterBeach(x,y,groundZ,lookYawDeg)` → eye = ground + 2 m)
+  and aims the gaze from yaw/pitch; left-drag turns the head, wheel narrows
+  the FOV like binoculars, WASD/arrows walk the eye along the ground. A
+  tight near plane (1 m) so the water at your feet doesn't clip.
+- **scene3d.js**: wave exaggeration is now a per-frame field
+  (`waveExagg`, default 10) set each water draw, so a view can change it.
+- **app.js + index.html**: a "Beach view" button. Enter → ensure 3D, stand
+  a step seaward of the town core at the waterline looking west (sea is -x
+  in every current scenario), `waveExagg = 1`. Exit (or leaving 3D) restores
+  the orbit view and 10x. Beach walking uses a fixed 60 m stride.
+- Verified live: eye lands seaward of the town at z=2 looking due west
+  [-1,0,0], waveExagg 1, renders a horizon (blue sky over sea/beach),
+  look + walk both respond, glError 0.

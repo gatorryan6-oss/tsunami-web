@@ -172,6 +172,7 @@ async function main() {
     // The scene holds no solver reference — render() takes the live solver
     // each frame, so scenario swaps never leave it stale.
     let view3d = false;
+    let beachView = false;     // first-person "stand on the shore" camera
     let scene3d = null;
     const camera = new OrbitCamera();
     const BACKING_2D = 513;    // the shipped 2D backing size — restored on toggle
@@ -671,6 +672,8 @@ async function main() {
     // at display resolution.
     function setView3d(on) {
         view3d = !!on;
+        // Leaving the 3D scene leaves the beach with it.
+        if (!view3d && beachView) exitBeachState();
         document.body.classList.toggle("view3d", view3d);
         $("viewmode").textContent = view3d ? "2D map" : "3D view";
         if (view3d) {
@@ -681,6 +684,31 @@ async function main() {
         }
     }
     $("viewmode").addEventListener("click", () => setView3d(!view3d));
+
+    // Beach view: stand on the shore at eye height and watch the sea come
+    // in at TRUE height (1x, no exaggeration) — the view the whole lesson
+    // is about. It's a first-person camera mode on top of the 3D scene.
+    function exitBeachState() {
+        beachView = false;
+        camera.exitBeach();
+        if (scene3d) scene3d.waveExagg = 10.0;   // back to map-scale
+        $("beachview").textContent = "Beach view";
+    }
+    function setBeachView(on) {
+        if (!on) { exitBeachState(); draw(); return; }
+        if (!view3d) setView3d(true);            // beach is a 3D camera
+        beachView = true;
+        // Stand a step seaward of the town core at the waterline (z 0),
+        // looking out to sea. Sea is to the west (-x, yaw 180) in every
+        // current scenario; a future coast on another side would set this
+        // from the bed instead.
+        const fp = town ? town.footprint() : { cx: 0, cy: 0, r: 2000 };
+        camera.enterBeach(fp.cx - fp.r - 300, fp.cy, 0.0, 180.0);
+        if (scene3d) scene3d.waveExagg = 1.0;    // real wave height
+        $("beachview").textContent = "Exit beach";
+        draw();
+    }
+    $("beachview").addEventListener("click", () => setBeachView(!beachView));
 
     // 3D mouse controls: left-drag orbit, right-drag pan, wheel zoom.
     // All inert in 2D mode.
@@ -725,7 +753,9 @@ async function main() {
         const move = PAN_KEYS[e.key.toLowerCase()];
         if (!move) return;
         e.preventDefault();
-        const step = camera.distance * 0.05;
+        // Beach mode WALKS in fixed strides; orbit mode glides proportional
+        // to zoom (the stale orbit distance would make a beach step huge).
+        const step = beachView ? 60.0 : camera.distance * 0.05;
         camera.moveGround(move[0] * step, move[1] * step);
     });
 
