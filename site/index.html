@@ -16,9 +16,23 @@
   header { margin: 14px 0 6px; text-align: center; }
   h1 { font-size: 1.25rem; margin: 0; font-weight: 600; }
   header p { margin: 4px 0 0; font-size: 0.85rem; color: #8fa0b4; }
+  /* Controls: one bar, visually clustered into labeled groups so eight
+     controls read as four ideas (scenario / conditions / view / speed). */
   #controls {
-    display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+    display: flex; gap: 14px; align-items: stretch; flex-wrap: wrap;
     justify-content: center; margin: 10px 0;
+  }
+  .cgroup {
+    display: flex; flex-direction: column; gap: 3px;
+    padding: 4px 10px 6px; border-radius: 8px;
+    background: rgba(28, 37, 48, 0.45); border: 1px solid #232f3c;
+  }
+  .cgroup .gcap {
+    font-size: 0.62rem; letter-spacing: 0.12em; text-transform: uppercase;
+    color: #7d8fa3; text-align: center;
+  }
+  .cgroup .grow {
+    display: flex; gap: 8px; align-items: center; justify-content: center;
   }
   select, button {
     background: #1c2530; color: #dce3ec; border: 1px solid #33414f;
@@ -45,24 +59,34 @@
     font-size: 0.82rem; color: #8fa0b4; max-width: min(92vw, 660px);
     text-align: center; margin: 2px 0 10px; min-height: 2.2em;
   }
-  #town {
-    font-size: 0.82rem; color: #b7a77a; max-width: min(92vw, 660px);
-    text-align: center; margin: 0 0 6px; min-height: 1.2em;
-    font-family: ui-monospace, Consolas, monospace;
+  /* Readout cards: the key numbers as a dashboard row — big enough to
+     read off a projector, compact enough for a Chromebook. The day/night
+     and warning context lives in the sublabels, so toggling them visibly
+     re-prices the cards. */
+  #cards {
+    display: flex; gap: 8px; flex-wrap: wrap; justify-content: center;
+    width: min(92vw, 660px); margin: 10px 0 4px;
   }
-  #town.warn { color: #e0a13d; }
-  #damage {
-    font-size: 0.82rem; color: #9fb3c8; max-width: min(92vw, 660px);
-    text-align: center; margin: 0 0 6px; min-height: 1.2em;
-    font-family: ui-monospace, Consolas, monospace;
+  .card {
+    flex: 1 1 116px; min-width: 108px; padding: 7px 10px 8px;
+    background: #1c2530; border: 1px solid #232f3c; border-radius: 8px;
+    text-align: center;
   }
-  #damage.hit { color: #f0a868; }
-  #casualty {
-    font-size: 0.82rem; color: #9fb3c8; max-width: min(92vw, 660px);
-    text-align: center; margin: 0 0 10px; min-height: 1.2em;
-    font-family: ui-monospace, Consolas, monospace;
+  .card .lbl {
+    font-size: 0.62rem; letter-spacing: 0.12em; text-transform: uppercase;
+    color: #7d8fa3; margin-bottom: 2px;
   }
-  #casualty.hit { color: #ff8f8f; }
+  .card .num {
+    font-size: clamp(1.15rem, 3.4vw, 1.6rem); font-weight: 650;
+    line-height: 1.15; font-variant-numeric: tabular-nums;
+  }
+  .card .sub {
+    font-size: 0.7rem; color: #8fa0b4; margin-top: 2px; min-height: 0.9em;
+    font-variant-numeric: tabular-nums;
+  }
+  .card.bad .num { color: #ff8f8f; }
+  .card.warn .num { color: #f0a868; }
+  .card.good .num { color: #7deda0; }
   /* 3D mode: the anomaly colorbar and the fixed scale bar describe the
      top-down map, not a perspective scene — hide them there. */
   body.view3d #legend { display: none; }
@@ -117,15 +141,35 @@
   <p>WebGL2 port — physics parity with the desktop reference (tsunami-web)</p>
 </header>
 <div id="controls">
-  <label>Scenario <select id="scenario"></select></label>
-  <button id="run">Run</button>
-  <button id="reset">Reset</button>
-  <button id="daynight" title="Toggle who is where: homes by night, schools/workplaces by day">☀ Day</button>
-  <button id="ews" title="Early-warning system: buoys + sirens. Decisive for a distant (regional) source, near-useless for a near-field quake.">🚨 Warning: off</button>
-  <button id="viewmode" title="Switch between the top-down map and the 3D scene">3D view</button>
-  <label>Overlay <select id="overlaySel" title="Paint an accumulated hazard field as a heatmap"></select></label>
-  <label>Speed <input id="speed" type="range" min="1" max="240" value="30" step="1">
-    <span id="speedval">x30</span></label>
+  <div class="cgroup">
+    <span class="gcap">Scenario</span>
+    <div class="grow">
+      <select id="scenario"></select>
+      <button id="run">Run</button>
+      <button id="reset">Reset</button>
+    </div>
+  </div>
+  <div class="cgroup">
+    <span class="gcap">Conditions</span>
+    <div class="grow">
+      <button id="daynight" title="Toggle who is where: homes by night, schools/workplaces by day">☀ Day</button>
+      <button id="ews" title="Early-warning system: buoys + sirens. Decisive for a distant (regional) source, near-useless for a near-field quake.">🚨 Warning: off</button>
+    </div>
+  </div>
+  <div class="cgroup">
+    <span class="gcap">View</span>
+    <div class="grow">
+      <button id="viewmode" title="Switch between the top-down map and the 3D scene">3D view</button>
+      <select id="overlaySel" title="Paint an accumulated hazard field as a heatmap"></select>
+    </div>
+  </div>
+  <div class="cgroup">
+    <span class="gcap">Speed</span>
+    <div class="grow">
+      <input id="speed" type="range" min="1" max="240" value="30" step="1" style="width: 90px;">
+      <span id="speedval" style="font-size: 0.85rem; min-width: 2.6em;">x30</span>
+    </div>
+  </div>
 </div>
 <div id="viewwrap">
   <canvas id="view" width="513" height="513"></canvas>
@@ -143,11 +187,35 @@
     <div class="labels"><span>0</span><span id="scalelabel">20 km</span></div>
   </div>
 </div>
+<div id="cards">
+  <div class="card" id="cardClock">
+    <div class="lbl">Simulated time</div>
+    <div class="num" id="clockNum">—</div>
+    <div class="sub" id="clockSub">press Run</div>
+  </div>
+  <div class="card" id="cardPop">
+    <div class="lbl">Town</div>
+    <div class="num" id="popNum">—</div>
+    <div class="sub" id="popSub">loading…</div>
+  </div>
+  <div class="card" id="cardDamage">
+    <div class="lbl">Damage</div>
+    <div class="num" id="dmgNum">—</div>
+    <div class="sub" id="dmgSub">no event yet</div>
+  </div>
+  <div class="card" id="cardDeaths">
+    <div class="lbl">Deaths</div>
+    <div class="num" id="deathNum">—</div>
+    <div class="sub" id="deathSub">no event yet</div>
+  </div>
+  <div class="card" id="cardEvac">
+    <div class="lbl">Evacuation</div>
+    <div class="num" id="evacNum">—</div>
+    <div class="sub" id="evacSub">☀ day · no warning</div>
+  </div>
+</div>
 <div id="status">booting…</div>
 <div id="desc"></div>
-<div id="town"></div>
-<div id="damage"></div>
-<div id="casualty"></div>
 <div id="fatal"></div>
 <footer>
   Physics verified against the desktop reference:

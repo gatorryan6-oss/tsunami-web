@@ -71,11 +71,15 @@ async function main() {
     let town = null;
     try {
         town = await loadTown();
-        $("town").textContent = `Town: ${town.summary()}`;
+        $("popNum").textContent = town.population.toLocaleString("en-US");
+        $("popSub").textContent =
+            `${town.buildings.length} buildings · ` +
+            `$${(town.totalValue / 1e9).toFixed(2)}B value`;
     } catch (e) {
         console.error(e);
-        $("town").textContent = `⚠ town data unavailable — ${e.message}`;
-        $("town").classList.add("warn");
+        $("popNum").textContent = "—";
+        $("popSub").textContent = `⚠ town data unavailable — ${e.message}`;
+        $("cardPop").classList.add("warn");
     }
     const overlay = new TownOverlay($("overlay"));
     function syncOverlaySize() {
@@ -206,12 +210,14 @@ async function main() {
             scene3d.setTownColors(cols);
         }
         const critHit = r.critical.filter(c => c[1] >= 0.2).length;
-        $("damage").textContent =
-            `Damage: $${(r.totalLoss / 1e9).toFixed(2)}B of ` +
-            `$${(r.totalValue / 1e9).toFixed(2)}B (${r.lossPct.toFixed(0)}%) · ` +
-            `${r.counts.collapse || 0} collapsed, ${r.counts.major || 0} major · ` +
-            `${critHit}/${r.critical.length} critical facilities hit`;
-        $("damage").classList.toggle("hit", r.lossPct >= 1.0);
+        $("dmgNum").textContent = `$${(r.totalLoss / 1e9).toFixed(2)}B`;
+        $("dmgSub").textContent =
+            `${r.lossPct.toFixed(0)}% of value · ` +
+            `${r.counts.collapse || 0} collapsed · ` +
+            `${critHit}/${r.critical.length} critical`;
+        $("cardDamage").classList.toggle(
+            "warn", r.lossPct >= 1.0 && r.lossPct < 40.0);
+        $("cardDamage").classList.toggle("bad", r.lossPct >= 40.0);
 
         // Refuges depend only on the (post-event) bed — compute once per
         // terrain epoch and reuse across cadence ticks and day/night flips
@@ -230,18 +236,48 @@ async function main() {
         renderCasualtyLine();
     }
 
+    // The conditions the casualty numbers were priced under — shown in the
+    // evacuation card's sublabel so toggling ☀/☾ or 🚨 visibly re-prices.
+    function conditionLabel() {
+        return `${daytime ? "☀ day" : "☾ night"} · ` +
+               `${ewsOn ? "🚨 warning ON" : "no warning"}`;
+    }
+
     function renderCasualtyLine() {
+        $("evacSub").textContent = conditionLabel();
         const c = casualtyReport;
-        if (!c) { $("casualty").textContent = ""; return; }
-        const mode = daytime ? "Day" : "Night";
-        const warn = ewsOn ? "early warning ON" : "no warning system";
-        $("casualty").textContent =
-            `Casualties (${mode.toLowerCase()}, ${warn}): ` +
-            `~${Math.round(c.fatalities).toLocaleString("en-US")} dead, ` +
-            `~${Math.round(c.injuries).toLocaleString("en-US")} hurt of ` +
-            `${c.present.toLocaleString("en-US")} present · ` +
-            `evacuation ${(100 * c.evacSuccess).toFixed(0)}%`;
-        $("casualty").classList.toggle("hit", c.fatalities >= 1.0);
+        if (!c) {
+            $("deathNum").textContent = "—";
+            $("deathSub").textContent = "no event yet";
+            $("evacNum").textContent = "—";
+            $("cardDeaths").classList.remove("bad", "good");
+            $("cardEvac").classList.remove("bad", "warn", "good");
+            return;
+        }
+        $("deathNum").textContent =
+            `~${Math.round(c.fatalities).toLocaleString("en-US")}`;
+        $("deathSub").textContent =
+            `of ${c.present.toLocaleString("en-US")} present · ` +
+            `~${Math.round(c.injuries).toLocaleString("en-US")} hurt`;
+        $("cardDeaths").classList.toggle("bad", c.fatalities >= 1.0);
+        $("cardDeaths").classList.toggle("good", c.fatalities < 1.0);
+        const e = 100 * c.evacSuccess;
+        $("evacNum").textContent = `${e.toFixed(0)}%`;
+        $("cardEvac").classList.toggle("good", e >= 70);
+        $("cardEvac").classList.toggle("warn", e >= 30 && e < 70);
+        $("cardEvac").classList.toggle("bad", e < 30);
+    }
+
+    /** Blank the outcome cards for a fresh scenario (population persists —
+     *  the town is the same; conditions persist — they're settings). */
+    function resetOutcomeCards() {
+        $("clockNum").textContent = "0 s";
+        $("clockSub").textContent = "press Run";
+        $("dmgNum").textContent = "—";
+        $("dmgSub").textContent = "no event yet";
+        $("cardDamage").classList.remove("bad", "warn");
+        casualtyReport = null;
+        renderCasualtyLine();
     }
     // The event is ARMED at load and fired on the first Run press, so the
     // user sees the calm pre-event ocean first and the rupture/pulse/train
@@ -266,10 +302,7 @@ async function main() {
         casualtyReport = null;
         refuges = null;            // new bed epoch: refuges recompute
         assessTick = 0;
-        $("damage").textContent = "";
-        $("damage").classList.remove("hit");
-        $("casualty").textContent = "";
-        $("casualty").classList.remove("hit");
+        resetOutcomeCards();
         if (town) {
             const g = scenarioData.params.grid;
             townGrid = { n: g.n, dx: g.dx_m,
@@ -461,10 +494,13 @@ async function main() {
                     canvas.clientWidth !== overlay.cssW) syncOverlaySize();
             }
             if (!sim.paused) {
+                // The clock card owns the sim time (the teaching quantity);
+                // the status line keeps the technical telemetry.
+                $("clockNum").textContent = fmtSimTime(solver.timeS);
+                $("clockSub").textContent = `running ×${sim.timeScale}`;
                 $("status").textContent =
-                    `simulated time ${fmtSimTime(solver.timeS)} | ` +
-                    `speed x${sim.timeScale} | ${fpsShown} fps` +
-                    (steps >= 24 ? " | running below requested speed" : "");
+                    `${fpsShown} fps` +
+                    (steps >= 24 ? " · running below requested speed" : "");
             }
         }
         requestAnimationFrame(frame);
@@ -498,7 +534,10 @@ async function main() {
         $("run").textContent = sim.paused ? "Run" : "Pause";
         // Pausing: snap the damage readout to the current state (the
         // running cadence may be up to 30 frames stale).
-        if (sim.paused && solver && solver.timeS > 0) assessDamage();
+        if (sim.paused) {
+            $("clockSub").textContent = "paused";
+            if (solver && solver.timeS > 0) assessDamage();
+        }
     });
     $("reset").addEventListener("click", () => setScenario(sel.value).catch(e => fatal(e.message)));
     $("speed").addEventListener("input", () => {

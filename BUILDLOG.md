@@ -54,6 +54,45 @@ Entry format:
 
 (entries accumulate here, newest first)
 
+## 2026-07-17 — M10: UI polish — dashboard cards + grouped controls (user-scoped)
+- Scoped by user Q&A: design for Chromebook AND projector (key numbers
+  legible from the back row); readouts as DASHBOARD CARDS; controls as
+  LABELED GROUPS in one bar; onboarding explicitly DEFERRED by the user
+  ("I will add to this later").
+- Shipped: the three small monospace readout lines (#town/#damage/
+  #casualty) replaced by a five-card dashboard row under the map —
+  SIMULATED TIME (the clock card now owns the teaching quantity; the
+  status line keeps fps/telemetry), TOWN (population · buildings · value,
+  constant baseline; town-load errors surface here), DAMAGE ($B ·
+  %-of-value · collapsed · critical), DEATHS (~N · of-present · hurt),
+  EVACUATION (% · the ☀/☾ + 🚨 conditions it was priced under — so
+  toggling visibly re-prices). Numbers clamp(1.15rem→1.6rem), tabular
+  figures; severity classes color the number (bad red / warn amber / good
+  green: damage ≥40% bad, deaths ≥1 bad else good, evac ≥70 good / 30–70
+  warn / <30 bad). The eight controls clustered into four captioned
+  groups: SCENARIO (picker+Run+Reset) · CONDITIONS (☀/☾, 🚨) · VIEW
+  (2D/3D, overlay) · SPEED. Reset blanks the outcome cards but keeps the
+  conditions (they're settings, not outcomes) and the town baseline.
+- Verified (real DOM via the app's own buttons): boot = groups
+  [Scenario·Conditions·View·Speed], population card "3,749 · 850
+  buildings · $0.48B", outcomes "—/no event yet". Scenario C flooded:
+  Damage "$0.44B · 93% · 828 collapsed · 3/6 critical" (bad), Deaths
+  "~2,416 of 2,867 · ~4,832 hurt" (bad), Evac "16% · ☀ day · no warning"
+  (bad). ☾ Night click → "~3,666 of 3,749" (re-priced). 🚨 click on C →
+  evac stays 2% (near-field: correctly unhelped). Scenario B + 🚨 →
+  Deaths "~0" GREEN, Evac "100%" GREEN — the EWS lesson as a green
+  dashboard. Reset → outcomes blank, conditions persist. invariants
+  18/18, verify.py PASS (markers unaffected). Display-only: no physics,
+  no shader, no model changes; parity untouched by construction.
+- Deferred: onboarding/guided hints (user will spec later); the polarity-
+  flip decision (separate thread); clock-card live-update verified by
+  code-path identity only (hidden-pane rAF suspension blocks observing
+  it here — same writer block that drove the old status clock).
+- Open bugs: none.
+- Decisions: conditions shown IN the evacuation card's sublabel (the
+  number and the assumptions it was priced under travel together);
+  population card persists across scenarios (same town by design).
+
 ## 2026-07-17 — M9.x: regional early warning (the EWS lesson, closes the M7 gap)
 - Shipped: the deferred regional early-warning refinement — a "🚨 Warning"
   toggle that makes the difference between everyone-out and no-one-out for
