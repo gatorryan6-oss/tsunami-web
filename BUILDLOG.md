@@ -805,3 +805,27 @@ them. No rule was added after M0; none was violated.
   window.__app debug handle exposed for console checks; display view is
   2D top-down for phase 1 (3D terrain/water/sky stack is a later phase —
   SHADER_INVENTORY says it translates directly when wanted).
+
+## 2026-07-18 — 3D view: uniform wave exaggeration + keyboard pan (Opus)
+
+Two display-only 3D tweaks (no physics, no parity impact), user-driven.
+
+- **Uniform 10x wave exaggeration** (scene3d.js): both `u_exagg_shallow`
+  and `u_exagg_deep` set to 10.0 (was 8x shallow / 60x deep, blended by
+  depth). The old depth-split rendered open-ocean waves ~7.5x taller than
+  the same anomaly at the coast — reading as "waves are bigger in deep
+  water," the inverse of shoaling. One factor means any growth you SEE as
+  the wave nears shore is real (Green's law); the deep pulse stays a faint
+  blip and the wave "pops up" on the slope, which is the real behavior.
+  Full-length propagation is for the 2D map. water.vert's
+  mix(shallow,deep,smoothstep(20,250,depth)) collapses to a constant when
+  the knobs are equal. Verified live: uniforms read 10/10 from the
+  compiled program, 3D scene renders non-black, glError 0.
+- **Keyboard pan** (camera.js + app.js): new `OrbitCamera.moveGround(
+  forward, right)` slides the look-at point across the SEA-LEVEL plane
+  (target z untouched) along the view heading. app.js binds WASD + arrow
+  keys to it in 3D mode (guarded: ignored while typing in a control),
+  step = distance*0.05. Fixes "can't travel out to deep water without
+  zooming" — glide out over the ocean parallel to sea level, THEN zoom in
+  on the blip. Right-drag pan (already present) is unchanged. Verified:
+  moveGround translates 40 km with z held exactly.

@@ -72,6 +72,20 @@ export class OrbitCamera {
         this.target[1] += fy * dy * speed;
     }
 
+    /** Keyboard/precise pan: slide the look-at point across the SEA-LEVEL
+     *  plane along the view heading — `forward` toward the horizon, `right`
+     *  sideways — in world meters. The target's height is untouched, so the
+     *  motion is strictly parallel to sea level (fly out over the ocean,
+     *  then zoom in on the blip). Amounts are world meters; the caller
+     *  scales them by distance so a step feels the same at any zoom. */
+    moveGround(forward, right) {
+        const yaw = this.yawDeg * DEG;
+        const fx = -Math.cos(yaw), fy = -Math.sin(yaw);   // toward the horizon
+        const rx = -Math.sin(yaw), ry = Math.cos(yaw);    // camera-right
+        this.target[0] += fx * forward + rx * right;
+        this.target[1] += fy * forward + ry * right;
+    }
+
     /** Scroll: move closer/farther. Multiplicative, so one notch feels the
      *  same whether 1 km out or 100 km out. scrollY > 0 = zoom in. */
     zoom(scrollY) {

@@ -708,6 +708,27 @@ async function main() {
         if (view3d) e.preventDefault();  // right-drag pans, no menu
     });
 
+    // 3D keyboard controls: WASD / arrow keys glide the view across the
+    // sea surface (parallel to sea level), so you can travel out to deep
+    // water and THEN zoom in on the wave — precise where dragging is
+    // fiddly. Step scales with zoom (a press moves ~5% of the view
+    // distance). Ignored while typing in a control or in 2D mode.
+    const PAN_KEYS = {
+        w: [1, 0], s: [-1, 0], a: [0, -1], d: [0, 1],
+        arrowup: [1, 0], arrowdown: [-1, 0],
+        arrowleft: [0, -1], arrowright: [0, 1],
+    };
+    window.addEventListener("keydown", (e) => {
+        if (!view3d || e.ctrlKey || e.metaKey || e.altKey) return;
+        const tag = (e.target.tagName || "").toLowerCase();
+        if (tag === "input" || tag === "select" || tag === "textarea") return;
+        const move = PAN_KEYS[e.key.toLowerCase()];
+        if (!move) return;
+        e.preventDefault();
+        const step = camera.distance * 0.05;
+        camera.moveGround(move[0] * step, move[1] * step);
+    });
+
     await setScenario(sel.value);
     requestAnimationFrame(frame);
 }

@@ -188,9 +188,22 @@ export class Scene3D {
 
         // One-time water uniforms. The water mesh IS the terrain mesh (same
         // grid, same VAO — a WebGL2 VAO is program-independent); only the
-        // vertex shader's lift differs. Display-only exaggeration knobs are
-        // the desktop's: anomaly x8 shallow -> x60 deep, tilt x700 (the
-        // terrain itself stays 1:1 — honest-display rule).
+        // vertex shader's lift differs. Display-only exaggeration knobs;
+        // tilt x700 (the terrain itself stays 1:1 — honest-display rule).
+        //
+        // UNIFORM 10x anomaly exaggeration (2026-07-18, user decision): a
+        // single vertical scale everywhere so the 3D height a viewer reads
+        // is comparable across the whole scene. The old depth-dependent
+        // 8x-shallow / 60x-deep taught the WRONG lesson — it rendered
+        // open-ocean waves ~7.5x taller than the same anomaly at the coast,
+        // which reads as "waves are bigger in deep water" (the exact
+        // inverse of shoaling: real waves GROW toward shore, Green's law).
+        // With one factor, any growth you SEE as the wave nears the coast
+        // is real. At 10x the deep-ocean pulse stays a barely-visible blip
+        // (deep anomalies ~0.1-1 m) and the wave "pops up" as it hits the
+        // slope — which is the real behavior; full-length propagation is
+        // for the 2D map. Both knobs equal, so the vertex shader's depth
+        // blend collapses to a constant.
         gl.useProgram(this.waterProg);
         const wu = (name) => gl.getUniformLocation(this.waterProg, name);
         this._w = {
@@ -203,8 +216,8 @@ export class Scene3D {
         gl.uniform2f(wu("u_origin"), -sizeM / 2, -sizeM / 2);
         gl.uniform1f(wu("u_size"), sizeM);
         gl.uniform1f(wu("u_texn"), n);
-        gl.uniform1f(wu("u_exagg_shallow"), 8.0);
-        gl.uniform1f(wu("u_exagg_deep"), 60.0);
+        gl.uniform1f(wu("u_exagg_shallow"), 10.0);
+        gl.uniform1f(wu("u_exagg_deep"), 10.0);
         gl.uniform1f(wu("u_slope_boost"), 700.0);
 
         gl.useProgram(this.buildingProg);
