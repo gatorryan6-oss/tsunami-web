@@ -873,3 +873,29 @@ scenario tipped the gaze up at the sky, and the wave underwhelmed.
 - KNOWN/OPEN: the calm shallow sea still renders tan (clear water over the
   wide gentle shelf shows the sand) — a water-shader appearance question,
   not position; flagged for a follow-up (would touch the shared water.frag).
+
+## 2026-07-18 — Beach view: stand IN the water's edge + North-Atlantic sea
+
+User feedback with screenshots: from the beach the sea was a thin line at
+the horizon and everything below it tan. Diagnosis (measured): the tan was
+NOT water — standing on the 234 m dry cell with the eye 2 m up puts the
+whole beach cell across the lower screen and compresses the sea into a
+~1-degree horizon sliver; a water-color tint changed only 2% of pixels
+because there were almost no water fragments to tint. Two changes:
+
+- **Stand at the water's edge, wet side**: beachStandingPoint() now stops
+  at the first WET cell and stands the eye 2 m above the SEA SURFACE
+  (groundZ 0) — ankle-deep at the shore — with a -12 deg default gaze.
+  The sea now runs from your feet to the horizon and fills the frame; the
+  run-up wave comes straight at you.
+- **North-Atlantic sea in beach mode** (water.frag + scene3d + app):
+  new u_beach_sea uniform (0 = orbit view unchanged). At 1 the water body
+  runs a cold steel blue (turquoise -> deep navy replaced by
+  0.05,0.19,0.25 -> 0.02,0.08,0.16) and the surface goes near-opaque
+  (alpha >= 0.90) so the shelf sand no longer shows through. The thin
+  run-up alpha taper still applies, so flood sheets stay translucent.
+
+Verified live: sky [147,185,230] / far sea [72,112,158] / near sea
+[34,66,79] — dark-near, silvery-far, blue-dominant everywhere; exit
+restores orbit + clear water + 10x; scenario switch re-stands correctly.
+Physics shaders untouched: invariants 18/18, verify.py PASS.

@@ -25,6 +25,7 @@ uniform float u_slope_boost;  // display-only tilt amplification
 uniform float u_time;
 uniform vec3 u_camera_pos;
 uniform vec3 u_sun_dir;
+uniform float u_beach_sea;    // 1 in the beach view: a colder, opaque sea
 
 out vec4 f_color;
 
@@ -131,6 +132,18 @@ void main() {
     float alpha = clamp(1.0 - dot(transmit, vec3(0.3333)), 0.12, 0.97);
     vec3 body = mix(vec3(0.10, 0.48, 0.46), vec3(0.012, 0.10, 0.24),
                     1.0 - exp(-column / 50.0));
+
+    // Beach view: a colder, near-opaque North-Atlantic sea. From eye level
+    // you look across kilometres of clear, shallow shelf, which otherwise
+    // shows tan sand through near-transparent water (reads as a mudflat).
+    // Here the body runs a steely blue and the surface turns nearly opaque
+    // so it reads as open ocean. Gated by u_beach_sea (0 in the orbit view,
+    // which keeps its clear-water turquoise). The thin-run-up alpha taper
+    // below still applies, so a shallow flood sheet stays translucent.
+    vec3 na_body = mix(vec3(0.05, 0.19, 0.25), vec3(0.02, 0.08, 0.16),
+                       1.0 - exp(-column / 25.0));
+    body = mix(body, na_body, u_beach_sea);
+    alpha = mix(alpha, max(alpha, 0.90), u_beach_sea);
 
     vec3 color = mix(body, reflection, fresnel);
 

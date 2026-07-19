@@ -697,10 +697,14 @@ async function main() {
     // is about. It's a first-person camera mode on top of the 3D scene.
 
     /** Find the water's edge in front of the town and return where to
-     *  stand: the last DRY cell on the town's row before the sea, so you
-     *  look OUT over the water (not across a shelf) and the shoaled wave
-     *  runs up the beach toward you. Reads the CPU bed (solver.b), so the
-     *  eye sits on solid ground at the true shoreline of THIS scenario. */
+     *  stand: the FIRST WET cell west of the shoreline, with the eye 2 m
+     *  above the water surface (z 0). Standing on the dry sand instead
+     *  puts a whole 234 m terrain cell under your feet, which fills the
+     *  entire lower screen and squeezes the actual sea into a ~1-degree
+     *  sliver at the horizon (user-reported: "sea is a thin line"). At
+     *  the water's edge the sea starts at your feet and runs to the
+     *  horizon — the real standing-in-the-shallows view — and the run-up
+     *  wave comes straight at you. Reads the CPU bed (solver.b). */
     function beachStandingPoint() {
         const g = scenarioData.params.grid;
         const n = g.n, dx = g.dx_m, xmin = -g.domain_m / 2, ymin = -g.domain_m / 2;
@@ -709,21 +713,24 @@ async function main() {
         const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
         const j = clamp(Math.round((fp.cy - ymin) / dx), 0, n - 1);
         let i = clamp(Math.round((fp.cx - xmin) / dx), 0, n - 1);
-        // Walk WEST (toward the sea) until we step below sea level.
+        // Walk WEST (toward the sea) until we step below sea level: cell i
+        // is the first WET cell — the water's edge. Stand there, eye above
+        // the SEA SURFACE (groundZ 0), ankle-deep at the shore.
         while (i > 1 && bed[j * n + i] >= 0.0) i--;
-        const iStand = Math.min(n - 1, i + 1);   // last dry cell = water's edge
-        return { x: xmin + iStand * dx, y: fp.cy,
-                 groundZ: Math.max(bed[j * n + iStand], 0.0) };
+        return { x: xmin + i * dx, y: fp.cy, groundZ: 0.0 };
     }
     function enterBeachAt() {
         const p = beachStandingPoint();
         camera.enterBeach(p.x, p.y, p.groundZ, 180.0);  // yaw 180 = look west
-        if (scene3d) scene3d.waveExagg = 1.0;           // real wave height
+        camera.pitchDeg = -12.0;   // gaze slightly down: sea fills the frame
+        if (scene3d) { scene3d.waveExagg = 1.0;         // real wave height
+                       scene3d.beachSea = 1.0; }        // North-Atlantic sea
     }
     function exitBeachState() {
         beachView = false;
         camera.exitBeach();
-        if (scene3d) scene3d.waveExagg = 10.0;   // back to map-scale
+        if (scene3d) { scene3d.waveExagg = 10.0;        // back to map-scale
+                       scene3d.beachSea = 0.0; }        // clear-water orbit sea
         $("beachview").textContent = "Beach view";
     }
     function setBeachView(on) {

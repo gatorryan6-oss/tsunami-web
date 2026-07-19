@@ -210,6 +210,7 @@ export class Scene3D {
             view: wu("u_view"), proj: wu("u_proj"), sun: wu("u_sun_dir"),
             camPos: wu("u_camera_pos"), time: wu("u_time"),
             exaggS: wu("u_exagg_shallow"), exaggD: wu("u_exagg_deep"),
+            beachSea: wu("u_beach_sea"),
         };
         gl.uniform1i(wu("u_height"), 0);
         gl.uniform1i(wu("u_water"), 1);
@@ -223,6 +224,10 @@ export class Scene3D {
         // m and would be invisible at 1x), 1x for the beach view where the
         // camera is at eye height and a real 6-12 m wave should tower.
         this.waveExagg = 10.0;
+        // 1 in the beach view: the water shader renders a colder, opaque
+        // North-Atlantic sea instead of clear-water turquoise (which shows
+        // the tan shelf from eye level). 0 leaves the orbit view untouched.
+        this.beachSea = 0.0;
 
         gl.useProgram(this.buildingProg);
         const bu = (name) => gl.getUniformLocation(this.buildingProg, name);
@@ -373,6 +378,7 @@ export class Scene3D {
         gl.uniform1f(this._w.time, (performance.now() / 1000) % 3600);
         gl.uniform1f(this._w.exaggS, this.waveExagg);
         gl.uniform1f(this._w.exaggD, this.waveExagg);
+        gl.uniform1f(this._w.beachSea, this.beachSea);
         gl.activeTexture(gl.TEXTURE0);
         gl.bindTexture(gl.TEXTURE_2D, solver.bedTexture);
         gl.activeTexture(gl.TEXTURE1);
