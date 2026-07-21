@@ -899,3 +899,34 @@ Verified live: sky [147,185,230] / far sea [72,112,158] / near sea
 [34,66,79] — dark-near, silvery-far, blue-dominant everywhere; exit
 restores orbit + clear water + 10x; scenario switch re-stands correctly.
 Physics shaders untouched: invariants 18/18, verify.py PASS.
+
+## 2026-07-18 — Re-baked town + canon: the coastal-ribbon town (Opus)
+
+The desktop town generator was redesigned (Checkpoint 4 follow-through:
+buildings-per-cell = density x cell area, so the town spreads into a
+shore-parallel ribbon at ~150 bldgs/km^2). This propagates that here —
+site/data/town.json and phase2_canon.json are re-baked FROM the desktop,
+as always (baked, not ported).
+
+- **town.json**: 850 buildings, full civic kit, population 3,725,
+  830/850 still inside scenario c's frozen inundation extent (the
+  teaching-arc guard). As the web sees it: 177 physics cells occupied,
+  max 13 buildings per cell (was 93 cells / max 35). Per-building damage
+  coloring is now defensible — no building shares a hazard sample with
+  20+ others.
+- **phase2_canon.json** (284 KB): regenerated on the new town. New
+  canon numbers — loss $0.32B of $0.48B (66%), states
+  none 15 / minor 1 / moderate 24 / major 334 / collapse 476, day
+  ~2,562 dead of 2,981 (evac 13%), night ~3,623 of 3,725 (evac 2%),
+  regional unwarned ~2,527 (evac 15%) vs +EWS ~783 (evac 74%).
+- The desktop canon script now DERIVES its synthetic-field box from the
+  town's own extent instead of a hardcoded rectangle — the ribbon reached
+  outside the old box and the "every building must sample inside the box"
+  guard caught it loudly. Future town shapes are covered automatically.
+
+Verified: tests/test_invariants 18/18; the in-browser contract page
+(/tests.html) passes with ZERO failures and reproduces every desktop
+number to machine epsilon (per-building expected deaths max |Δ| 1.11e-16
+day / 4.44e-16 night); both teaching pins still hold — night deadlier
+than day, and early warning cuts regional deaths 2,527 -> 783. App boots
+and renders the new town.
