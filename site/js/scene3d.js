@@ -52,6 +52,19 @@ function makeGridMesh(nQuads, size) {
 // on sloped terrain (desktop town_render.SINK_M).
 const SINK_M = 1.5;
 
+// Road ribbons draped on the terrain — mirror of the desktop
+// render/roads_render.py. Widths (m) by kind, the small lift above the
+// surface that clears z-fighting, and the asphalt colors (street light,
+// shore warm, arterial darkest — realistic; the 2D map is where the
+// evacuation arterials get the gold highlight).
+const ROAD_WIDTH_M = [7.0, 8.0, 10.0];
+const ROAD_LIFT_M = 1.0;
+const ROAD_COLOR = [
+    [0.22, 0.22, 0.24],   // street
+    [0.26, 0.24, 0.21],   // shore road
+    [0.17, 0.17, 0.19],   // arterial
+];
+
 /** 36 vertices (position xyz + normal xyz) of a unit cube, base at z = 0 —
  *  the desktop _unit_cube(), row for row. */
 function unitCube() {
@@ -94,6 +107,8 @@ export class Scene3D {
                                         shaders.waterFrag, "water3d");
         this.buildingProg = compileProgram(gl, shaders.buildingVert,
                                            shaders.buildingFrag, "building3d");
+        this.roadProg = compileProgram(gl, shaders.roadVert,
+                                       shaders.roadFrag, "road3d");
 
         // Terrain mesh: one vertex per heightfield texel.
         const { positions, indices } = makeGridMesh(n - 1, sizeM);
@@ -140,6 +155,19 @@ export class Scene3D {
         gl.bindVertexArray(null);
         this.townCount = 0;
         this._townData = null;   // CPU copy: color updates rewrite cols 8-10
+
+        // Roads: pre-draped ribbon triangles (position xyz + color rgb),
+        // rebuilt once per scene from the road graph on the current bed.
+        this.roadVbo = gl.createBuffer();
+        this.roadVao = gl.createVertexArray();
+        gl.bindVertexArray(this.roadVao);
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.roadVbo);
+        gl.enableVertexAttribArray(0);                          // in_pos
+        gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 24, 0);
+        gl.enableVertexAttribArray(1);                          // in_color
+        gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 24, 12);
+        gl.bindVertexArray(null);
+        this.roadVertCount = 0;
 
         // No man-made structures in the web port yet: a 1x1 zero mask.
         // (The desktop falls back to binding the height texture when no
@@ -233,6 +261,10 @@ export class Scene3D {
         const bu = (name) => gl.getUniformLocation(this.buildingProg, name);
         this._b = { view: bu("u_view"), proj: bu("u_proj"),
                     sun: bu("u_sun_dir") };
+
+        gl.useProgram(this.roadProg);
+        const ru = (name) => gl.getUniformLocation(this.roadProg, name);
+        this._r = { view: ru("u_view"), proj: ru("u_proj") };
         gl.useProgram(null);
     }
 
@@ -266,6 +298,60 @@ export class Scene3D {
         this.townCount = count;
         gl.bindBuffer(gl.ARRAY_BUFFER, this.instVbo);
         gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
+        gl.bindBuffer(gl.ARRAY_BUFFER, null);
+    }
+
+    /** (Re)build the road ribbon mesh from the town's road graph, draped
+     *  on `bed` (a Float32Array(n*n), the same CPU bed the buildings were
+     *  placed on). Port of the desktop RoadsRenderer.set_roads. */
+    setRoads(town, bed) {
+        const gl = this.gl;
+        const roads = town && town.roads;
+        if (!roads || roads.edges.length === 0 || !bed) {
+            this.roadVertCount = 0;
+            return;
+        }
+        const n = this.n;
+        const dx = this.sizeM / (n - 1);
+        const xmin = -this.sizeM / 2, ymin = -this.sizeM / 2;
+        const bilin = (x, y) => {
+            let fi = (x - xmin) / dx, fj = (y - ymin) / dx;
+            fi = Math.min(n - 1.001, Math.max(0, fi));
+            fj = Math.min(n - 1.001, Math.max(0, fj));
+            const i = Math.floor(fi), j = Math.floor(fj);
+            const ti = fi - i, tj = fj - j;
+            return bed[j * n + i] * (1 - ti) * (1 - tj)
+                 + bed[j * n + i + 1] * ti * (1 - tj)
+                 + bed[(j + 1) * n + i] * (1 - ti) * tj
+                 + bed[(j + 1) * n + i + 1] * ti * tj;
+        };
+        const verts = [];   // 6 floats per vertex: x,y,z, r,g,b
+        const pushV = (x, y, col) => {
+            verts.push(x, y, bilin(x, y) + ROAD_LIFT_M, col[0], col[1], col[2]);
+        };
+        for (let e = 0; e < roads.edges.length; e++) {
+            const [ui, vi] = roads.edges[e];
+            const ax = roads.nodes[ui][0], ay = roads.nodes[ui][1];
+            const bx = roads.nodes[vi][0], by = roads.nodes[vi][1];
+            const ddx = bx - ax, ddy = by - ay;
+            const len = Math.sqrt(ddx * ddx + ddy * ddy);
+            if (len < 1e-6) continue;
+            const ux = ddx / len, uy = ddy / len;
+            const half = 0.5 * ROAD_WIDTH_M[roads.kind[e]];
+            const px = -uy * half, py = ux * half;   // perpendicular offset
+            const col = ROAD_COLOR[roads.kind[e]];
+            // Two triangles: (p00 p10 p01), (p01 p10 p11).
+            pushV(ax - px, ay - py, col);   // p00
+            pushV(bx - px, by - py, col);   // p10
+            pushV(ax + px, ay + py, col);   // p01
+            pushV(ax + px, ay + py, col);   // p01
+            pushV(bx - px, by - py, col);   // p10
+            pushV(bx + px, by + py, col);   // p11
+        }
+        const data = new Float32Array(verts);
+        this.roadVertCount = data.length / 6;
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.roadVbo);
+        gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
         gl.bindBuffer(gl.ARRAY_BUFFER, null);
     }
 
@@ -335,6 +421,17 @@ export class Scene3D {
         gl.bindVertexArray(this.vao);
         gl.drawElements(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_INT, 0);
         gl.bindVertexArray(null);
+
+        // Roads: draped ribbons on the terrain, drawn after it and before
+        // the town (opaque; depth test keeps them under building walls).
+        if (this.roadVertCount > 0) {
+            gl.useProgram(this.roadProg);
+            gl.uniformMatrix4fv(this._r.view, false, view);
+            gl.uniformMatrix4fv(this._r.proj, false, proj);
+            gl.bindVertexArray(this.roadVao);
+            gl.drawArrays(gl.TRIANGLES, 0, this.roadVertCount);
+            gl.bindVertexArray(null);
+        }
 
         // Town: the whole settlement in ONE instanced draw (opaque, so
         // before sky and before the translucent water — a flooded
@@ -409,6 +506,9 @@ export class Scene3D {
         gl.deleteProgram(this.skyProg);
         gl.deleteProgram(this.waterProg);
         gl.deleteProgram(this.buildingProg);
+        gl.deleteBuffer(this.roadVbo);
+        gl.deleteVertexArray(this.roadVao);
+        gl.deleteProgram(this.roadProg);
         gl.deleteBuffer(this.quad.vbo);
         gl.deleteVertexArray(this.quad.vao);
     }

@@ -64,6 +64,17 @@ const INSET_MARGIN = 8;      // css px from the canvas corner
 const INSET_FRACTION = 0.38; // of canvas width
 const INSET_MIN = 170, INSET_MAX = 280;
 
+// Road ribbon widths (m), mirror of roads.KIND_WIDTH_M, and their 2D
+// styling. Streets are a faint gray mesh; the shore road is warm; the
+// ARTERIALS are the evacuation story, so they read gold and heavy. Index
+// = kind (0 street / 1 shore / 2 arterial).
+const ROAD_WIDTH_M = [7.0, 8.0, 10.0];
+const ROAD_COLOR = [
+    "rgba(72,76,84,0.5)",     // street
+    "rgba(156,124,58,0.75)",  // shore road
+    "rgba(233,172,42,0.92)",  // arterial (evacuation route)
+];
+
 export class TownOverlay {
     constructor(canvas) {
         this.canvas = canvas;
@@ -120,6 +131,10 @@ export class TownOverlay {
             scale: this.cssW / (grid.n * grid.dx),   // px per meter
             minPx: 2.0,
         };
+        // Roads first, buildings on top. On the whole-map view the street
+        // lattice is sub-pixel, so its floor is thin (a faint mesh) while
+        // the arterials stay visible leading inland to high ground.
+        this._drawRoads(town, mainView, [0.4, 1.0, 1.6]);
         this._drawBuildings(town, mainView, colorOf);
 
         if (!win) return;
@@ -146,6 +161,8 @@ export class TownOverlay {
         ctx.beginPath();
         ctx.rect(rect.x, rect.y, rect.w, rect.h);
         ctx.clip();
+        // The close-up shows the full street grid the town is laid on.
+        this._drawRoads(town, insetView, [0.9, 1.7, 2.6]);
         this._drawBuildings(town, insetView, colorOf, /*rings=*/true);
         ctx.restore();
 
@@ -160,6 +177,34 @@ export class TownOverlay {
         ctx.fillRect(rect.x, rect.y, tw + 10, 15);
         ctx.fillStyle = "#dce3ec";
         ctx.fillText(label, rect.x + 5, rect.y + 11);
+    }
+
+    /** Draw the road network as lines, kind by kind (streets first so
+     *  arterials render on top). `floors` = [street, shore, arterial]
+     *  minimum line widths in css px for this view's zoom. */
+    _drawRoads(town, view, floors) {
+        const roads = town.roads;
+        if (!roads || roads.edges.length === 0) return;
+        const { ctx, grid } = this;
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        for (const kind of [0, 1, 2]) {
+            ctx.strokeStyle = ROAD_COLOR[kind];
+            ctx.lineWidth = Math.max(floors[kind],
+                                     ROAD_WIDTH_M[kind] * view.scale);
+            ctx.beginPath();
+            for (let e = 0; e < roads.edges.length; e++) {
+                if (roads.kind[e] !== kind) continue;
+                const [ui, vi] = roads.edges[e];
+                const a = uvOf(grid, roads.nodes[ui][0], roads.nodes[ui][1]);
+                const b = uvOf(grid, roads.nodes[vi][0], roads.nodes[vi][1]);
+                const [ax, ay] = view.px(a.u, a.v);
+                const [bx, by] = view.px(b.u, b.v);
+                ctx.moveTo(ax, ay);
+                ctx.lineTo(bx, by);
+            }
+            ctx.stroke();
+        }
     }
 
     _drawBuildings(town, view, colorOf, rings = false) {

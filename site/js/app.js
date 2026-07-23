@@ -419,6 +419,7 @@ async function main() {
         if (scene3d && scene3d.n !== g3.n) { scene3d.release(); scene3d = null; }
         if (!scene3d) scene3d = new Scene3D(gl, shaders, g3.n, g3.domain_m);
         scene3d.setTown(town);   // rebuilds instances, restores base colors
+        scene3d.setRoads(town, solver.b);   // drape roads on the same bed
         // Frame the camera on the town (the desktop's startup framing:
         // ~2.6x the town radius, afternoon-lit from the southwest).
         if (town) {

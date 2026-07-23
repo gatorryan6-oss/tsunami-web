@@ -975,3 +975,35 @@ environment gotcha, not a code issue); the headless contract is the
 real proof.
 
 NEXT M12e: draw the roads (2D map + inset, 3D terrain, beach view).
+
+## 2026-07-22 — M12e: draw the roads (web 2D map, inset, 3D, beach)
+
+The road network is now visible in every view.
+
+- `overlay.js` (2D map + inset): a new _drawRoads() strokes the graph
+  kind by kind under the buildings. On the whole-map view the street
+  lattice is sub-pixel so its floor is thin (a faint mesh) while the
+  ARTERIALS read gold and heavy — the evacuation routes leading inland
+  to high ground. The close-up inset shows the full street grid.
+- `scene3d.js` (3D + beach, same render path): draped ribbon triangles
+  (position + per-kind color), draped on the SAME CPU bed the buildings
+  sit on (b.gz), lifted 1 m to clear z-fighting; built once per scene in
+  setRoads(), drawn after the terrain and before the town. New
+  road.vert/road.frag (GLSL 300 es, ports of the desktop pair) added to
+  the shader loader. Asphalt colors (street light / shore warm /
+  arterial darkest) match the desktop — realistic in 3D; the gold
+  arterial highlight lives on the 2D map where the teaching read is.
+
+**Verified in-browser (fresh origin to dodge the ES-module cache):**
+3D road mesh builds 308 edges -> 616 triangles, gl.getError() == 0; the
+2D overlay draws 382 gold arterial px (341 in the inset close-up) +
+3,302 street-gray px under the buildings. The app boots with no console
+errors; the contract page still passes all 32 checks (drawing is display
+only — no physics/casualty change); shader invariants exit 0 (only the
+swe_* physics shaders are pinned verbatim; display shaders are free);
+verify.py PASS.
+
+M12 ROADS ARC COMPLETE on both repos (desktop + web). Everything is
+COMMITTED, NOT PUSHED — the web push auto-deploys to
+tsunami-web.pages.dev, held for the user. NEXT: M13 polish (town look,
+map/overlay, HUD — the user picked all three).
