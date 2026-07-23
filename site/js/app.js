@@ -10,6 +10,7 @@ import { TownOverlay, computeInsetWindow, uvWindow } from "./overlay.js";
 import { getHazardFields } from "./hazard.js";
 import { assessTown, damageColorCss, damageColorRgb } from "./losses.js";
 import { assessCasualties, nearestRefuges, defaultEvacuationParams } from "./casualties.js";
+import { planEvacuation } from "./routing.js";
 import { evacTimingFor, SCENARIO_EVENTS } from "./events.js";
 import { SCENARIO_RATE, returnPeriodYr, annualize, EWS_COST_USD, fmtUsd } from "./economy.js";
 import { OrbitCamera } from "./camera.js";
@@ -228,10 +229,17 @@ async function main() {
             "warn", r.lossPct >= 1.0 && r.lossPct < 40.0);
         $("cardDamage").classList.toggle("bad", r.lossPct >= 40.0);
 
-        // Refuges depend only on the (post-event) bed — compute once per
-        // terrain epoch and reuse across cadence ticks and day/night flips
-        // (refuge geometry is independent of the detection/EWS knobs).
-        if (!refuges) refuges = nearestRefuges(town, townGrid, solver.b, evacParams);
+        // The evacuation lookup depends only on the (post-event) bed +
+        // town — compute once per terrain epoch and reuse across cadence
+        // ticks and day/night flips (it is independent of the detection/
+        // EWS knobs, which change only the clock). A town with roads gets
+        // the network route PLAN (M12b); a roadless one the legacy
+        // nearest-refuge array.
+        if (!refuges) {
+            refuges = (town.roads && town.roads.edges.length > 0)
+                ? planEvacuation(town, townGrid, solver.b, evacParams)
+                : nearestRefuges(town, townGrid, solver.b, evacParams);
+        }
         // Early-warning: the detection delay and the rupture time depend on
         // the source (near-field vs regional) and the EWS toggle — the
         // desktop _assessment_evac() rule. A regional source's rupture

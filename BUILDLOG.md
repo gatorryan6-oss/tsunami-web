@@ -930,3 +930,48 @@ number to machine epsilon (per-building expected deaths max |Δ| 1.11e-16
 day / 4.44e-16 night); both teaching pins still hold — night deadlier
 than day, and early warning cuts regional deaths 2,527 -> 783. App boots
 and renders the new town.
+
+## 2026-07-22 — M12d: web mirror of network evacuation (roads carry the walkers)
+
+The browser now evacuates over the road graph, reproducing the desktop
+network model bit-for-bit.
+
+- `town.js`: loadTown parses + LOUD-validates the `roads` block
+  (finite nodes, in-range edges, no self-loops); Town.roads = the graph
+  or null (a pre-M12c town.json falls back to the legacy beeline).
+- `routing.js` (NEW): the mirror of core/damage/routing.py.
+  refugePoints() (frontier row-major + extra refuges) and
+  planEvacuation() -> {neededBaseS, refugeXY, paths, onRefuge}. THE
+  PARITY DISCIPLINE, documented in the file: distances are
+  Math.sqrt(dx*dx+dy*dy) never Math.hypot (ulp differences could flip an
+  argmin and reroute a walker); shortest paths are deterministic
+  Bellman-Ford sweeps in baked edge order with strict < (no heap — tie
+  order would diverge); every argmin is first-wins over a fixed order.
+  JS Numbers are IEEE-754 float64 and +,-,*,/,sqrt are correctly
+  rounded, so identical op-order gives identical bits.
+- `casualties.js`: nearestRefuges refactored onto refugePoints (one
+  source of truth); new routeCutAlong() samples the ACTUAL polyline;
+  new offroadSpeedFactor default (0.5); assessCasualties dispatches on
+  town.roads — network plan for roaded towns, legacy beeline (verbatim)
+  otherwise. A critical building divides the route CLOCK, not the route.
+- `app.js`: the per-epoch cache now holds the route PLAN for a roaded
+  town (else the legacy array); regional/day-night reuse it (detection
+  changes the clock, not the routes).
+- `contract.js`: asserts offroadSpeedFactor matches, and builds the plan
+  for the roaded canon town.
+
+**Verified in-browser (real GPU context, /tests.html): ALL 32 CONTRACT
+CHECKS PASS.** The network model reproduces desktop per-building
+expected deaths to machine epsilon (max |Δ| 1.11e-16 day / 4.44e-16
+night); the headline numbers match exactly — day 2,561, night 3,622,
+regional unwarned 2,527, regional +EWS 1,565 (evac 47%). Damage canon
+unchanged (max |Δ| 2.22e-16). Shader invariants exit 0 (shaders
+untouched; physics parity unaffected). The app boots with no console
+errors on the roaded town.json.
+
+The live app readout couldn't be watched here (the browser pane isn't
+composited, so rAF is throttled and the sim clock stalls — a known
+environment gotcha, not a code issue); the headless contract is the
+real proof.
+
+NEXT M12e: draw the roads (2D map + inset, 3D terrain, beach view).

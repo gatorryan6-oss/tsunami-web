@@ -9,11 +9,15 @@
 // This module is data + accessors only. No GL, no hazard reads.
 
 export class Town {
-    constructor(buildings, types, provenance, summary) {
+    constructor(buildings, types, provenance, summary, roads = null) {
         this.buildings = buildings;   // [{t, x, y, gz, h, rot, type}]
         this.types = types;           // name -> type record (value_usd, ...)
         this.provenance = provenance;
         this.baked = summary;         // the bake-time summary block
+        // The road graph (M12c): {nodes: [[x,y],...], edges: [[u,v],...],
+        // kind: [k,...]} or null (a pre-roads town.json). The evacuation
+        // model (M12b) routes over this; the overlay/3D views draw it.
+        this.roads = roads;
     }
 
     /** Census population — people sleep where they live (night occupancy). */
@@ -86,7 +90,36 @@ export async function loadTown(url = "data/town.json") {
         }
         return { ...b, type };
     });
-    const town = new Town(buildings, types, raw.provenance, raw.summary);
+    // The road graph, validated LOUD like the buildings: a truncated
+    // download or an edge indexing a nonexistent node would otherwise
+    // surface later as a silently-wrong evacuation route. A town.json
+    // without roads (pre-M12c) loads roads=null and the evacuation model
+    // falls back to the legacy beeline.
+    let roads = null;
+    if (raw.roads) {
+        const rr = raw.roads;
+        const nNodes = rr.nodes.length;
+        for (let k = 0; k < nNodes; k++) {
+            if (!Number.isFinite(rr.nodes[k][0]) ||
+                !Number.isFinite(rr.nodes[k][1])) {
+                throw new Error(`${url}: road node ${k} is non-finite`);
+            }
+        }
+        if (rr.edges.length !== rr.kind.length) {
+            throw new Error(`${url}: ${rr.edges.length} road edges but ` +
+                            `${rr.kind.length} kinds — corrupt data`);
+        }
+        for (let k = 0; k < rr.edges.length; k++) {
+            const [u, v] = rr.edges[k];
+            if (u < 0 || v < 0 || u >= nNodes || v >= nNodes || u === v) {
+                throw new Error(`${url}: road edge ${k} [${u},${v}] is ` +
+                                `out of range or a self-loop`);
+            }
+        }
+        roads = { nodes: rr.nodes, edges: rr.edges, kind: rr.kind };
+    }
+    const town = new Town(buildings, types, raw.provenance, raw.summary,
+                          roads);
     // Internal consistency vs the bake-time summary — corruption tripwire.
     const s = raw.summary;
     if (buildings.length !== s.buildings) {

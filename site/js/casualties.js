@@ -21,6 +21,7 @@
 // actually stand on.
 
 import { erf } from "./fragility.js";
+import { planEvacuation, refugePoints } from "./routing.js";
 
 const SQRT2 = Math.SQRT2;
 
@@ -47,6 +48,10 @@ export function defaultEvacuationParams() {
         routeCutDepthM: 0.3,        // water this deep blocks a route
         injuriesPerFatality: 2.0,
         extraRefuges: [],           // [[x, y], ...] (P5 towers; none here)
+        // Off-road pace as a fraction of walkSpeedMS (M12b): the slow
+        // yard/brush/scramble legs of a network route. Only towns WITH a
+        // road graph use it — roadless ones keep the full-speed beeline.
+        offroadSpeedFactor: 0.5,
     };
 }
 
@@ -60,47 +65,56 @@ export function nearestRefuges(town, grid, bed, params) {
     const out = new Float64Array(nB * 2).fill(NaN);
     if (nB === 0) return out;
     const { n, dx, xmin, ymin } = grid;
-    const elev = params.refugeMinElevM;
-
-    // mask[idx] = high ground. frontier = mask cells not fully surrounded
-    // by mask (grid-border mask cells are always frontier — interior is
-    // only the strict 1..n-2 box, exactly like the desktop slice).
-    const rx = [], ry = [];
-    let anyMask = false;
-    for (let j = 0; j < n; j++) {
-        for (let i = 0; i < n; i++) {
-            if (bed[j * n + i] < elev) continue;
-            anyMask = true;
-            let interior = false;
-            if (j > 0 && j < n - 1 && i > 0 && i < n - 1) {
-                interior = bed[(j - 1) * n + i] >= elev &&
-                           bed[(j + 1) * n + i] >= elev &&
-                           bed[j * n + (i - 1)] >= elev &&
-                           bed[j * n + (i + 1)] >= elev;
-            }
-            if (!interior) { rx.push(xmin + i * dx); ry.push(ymin + j * dx); }
-        }
-    }
-    for (const p of params.extraRefuges) { rx.push(p[0]); ry.push(p[1]); }
+    // Same refuge points (frontier row-major + extra refuges) the network
+    // planner uses — one source of truth, matching the desktop.
+    const { mask, rx, ry } = refugePoints(grid, bed, params);
     if (rx.length === 0) return out;
-    const rxa = Float64Array.from(rx), rya = Float64Array.from(ry);
 
     for (let k = 0; k < nB; k++) {
         const b = town.buildings[k];
         const bi = Math.min(n - 1, Math.max(0, Math.round((b.x - xmin) / dx)));
         const bj = Math.min(n - 1, Math.max(0, Math.round((b.y - ymin) / dx)));
-        if (anyMask && bed[bj * n + bi] >= elev) {
+        if (mask[bj * n + bi]) {
             out[2 * k] = b.x; out[2 * k + 1] = b.y;   // already safe
             continue;
         }
         let best = Infinity, bx = NaN, by = NaN;
-        for (let m = 0; m < rxa.length; m++) {
-            const d2 = (rxa[m] - b.x) ** 2 + (rya[m] - b.y) ** 2;
-            if (d2 < best) { best = d2; bx = rxa[m]; by = rya[m]; }
+        for (let m = 0; m < rx.length; m++) {
+            const d2 = (rx[m] - b.x) ** 2 + (ry[m] - b.y) ** 2;
+            if (d2 < best) { best = d2; bx = rx[m]; by = ry[m]; }
         }
         out[2 * k] = bx; out[2 * k + 1] = by;
     }
     return out;
+}
+
+/** Water-beats-walker along the ACTUAL route polyline (M12b). Port of
+ *  _route_cut_along. path rows are [x, y, tBaseS]; a critical building's
+ *  slower pace scales the clock (t / factor), not the geometry. */
+function routeCutAlong(grid, hazard, path, departS, factor, params) {
+    const { n, dx, xmin, ymin } = grid;
+    for (let s = 0; s < path.length - 1; s++) {
+        const [x0, y0, t0] = path[s];
+        const [x1, y1, t1] = path[s + 1];
+        const ddx = x1 - x0, ddy = y1 - y0;
+        const length = Math.sqrt(ddx * ddx + ddy * ddy);
+        const nS = Math.max(2, Math.ceil(length / dx) + 1);
+        for (let q = 0; q < nS; q++) {
+            const u = q / (nS - 1);
+            const x = x0 + ddx * u;
+            const y = y0 + ddy * u;
+            const i = Math.min(n - 1, Math.max(0, Math.round((x - xmin) / dx)));
+            const j = Math.min(n - 1, Math.max(0, Math.round((y - ymin) / dx)));
+            const cell = j * n + i;
+            const arr = hazard.arrival[cell];
+            if (arr < 0.0) continue;
+            const walkerT = departS + (t0 + (t1 - t0) * u) / factor;
+            if (arr < walkerT && hazard.depth[cell] > params.routeCutDepthM) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 /** Does the water beat the walker to any point of the straight path?
@@ -138,7 +152,18 @@ export function assessCasualties(town, grid, bed, hazard, params, daytime,
     const nB = town.buildings.length;
     const per = new Float64Array(nB);
     if (nB === 0) return makeReport(daytime, 0, 0, 0, 1.0, 0, per, params);
-    if (!refuges || refuges.length !== nB * 2) {
+    // A town WITH roads evacuates over the network (M12b); a roadless one
+    // keeps the legacy full-speed beeline. `refuges` is the app's shared
+    // cache slot — an EvacPlan (detected by .neededBaseS) or a Float64Array
+    // of nearest-refuge xy; recompute if it's the wrong shape or stale.
+    const useNet = town.roads && town.roads.edges.length > 0;
+    let plan = null;
+    if (useNet) {
+        plan = (refuges && refuges.neededBaseS) ? refuges : null;
+        if (!plan || plan.neededBaseS.length !== nB) {
+            plan = planEvacuation(town, grid, bed, params);
+        }
+    } else if (!refuges || refuges.neededBaseS || refuges.length !== nB * 2) {
         refuges = nearestRefuges(town, grid, bed, params);
     }
     const { n, dx, xmin, ymin } = grid;
@@ -188,27 +213,44 @@ export function assessCasualties(town, grid, bed, hazard, params, daytime,
             atRisk += people[k];
         }
 
-        // Evacuation success.
+        // Evacuation success. A critical building rides the same route on
+        // a slower clock (factor divides the time, never the geometry).
         let e = 1.0;
+        const factor = Math.max(
+            b.type.critical ? params.criticalSpeedFactor : 1.0, 0.05);
+        const noRefuge = useNet ? !Number.isFinite(plan.neededBaseS[k])
+                                : !Number.isFinite(refuges[2 * k]);
         if (depth <= 0.0) {
             e = 1.0;                                   // never wet
-        } else if (!Number.isFinite(refuges[2 * k])) {
+        } else if (noRefuge) {
             e = 0.0;                                   // nowhere to go
         } else {
-            const v = params.walkSpeedMS *
-                (b.type.critical ? params.criticalSpeedFactor : 1.0);
-            const dist = Math.hypot(refuges[2 * k] - b.x,
-                                    refuges[2 * k + 1] - b.y);
-            const needed = dist / Math.max(v, 0.1);
+            let needed;
+            if (useNet) {
+                needed = plan.neededBaseS[k] / factor;
+            } else {
+                const v = params.walkSpeedMS * factor;
+                const dist = Math.hypot(refuges[2 * k] - b.x,
+                                        refuges[2 * k + 1] - b.y);
+                needed = dist / Math.max(v, 0.1);
+            }
             const margin = arrival >= 0.0
                 ? (arrival - depart) - needed
                 : 6.0 * params.spreadS;               // wave never reached
             const m = Math.min(40.0, Math.max(-40.0, margin / params.spreadS));
             e = 1.0 / (1.0 + Math.exp(-m));
-            if (e > params.routeCutFloor &&
-                routeCut(grid, hazard, b.x, b.y, refuges[2 * k],
-                         refuges[2 * k + 1], depart, v, params)) {
-                e = params.routeCutFloor;
+            if (e > params.routeCutFloor) {
+                if (useNet) {
+                    const path = plan.paths[k];
+                    if (path && routeCutAlong(grid, hazard, path, depart,
+                                              factor, params)) {
+                        e = params.routeCutFloor;
+                    }
+                } else if (routeCut(grid, hazard, b.x, b.y, refuges[2 * k],
+                                    refuges[2 * k + 1], depart,
+                                    params.walkSpeedMS * factor, params)) {
+                    e = params.routeCutFloor;
+                }
             }
         }
         peopleEvac += people[k] * e;

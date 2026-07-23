@@ -18,6 +18,7 @@ import { getHazardFields, arrivalRange, inundationExtent } from "./hazard.js";
 import { loadTown } from "./town.js";
 import { assessTown } from "./losses.js";
 import { assessCasualties, nearestRefuges, defaultEvacuationParams } from "./casualties.js";
+import { planEvacuation } from "./routing.js";
 
 export async function runContractChecks(gl, shaders) {
     const checks = [];
@@ -259,12 +260,18 @@ async function phase2CanonChecks(check) {
         p.spreadS === ec.params.spread_s &&
         p.routeCutFloor === ec.params.route_cut_floor &&
         p.routeCutDepthM === ec.params.route_cut_depth_m &&
-        p.injuriesPerFatality === ec.params.injuries_per_fatality;
+        p.injuriesPerFatality === ec.params.injuries_per_fatality &&
+        p.offroadSpeedFactor === ec.params.offroad_speed_factor;
     check(paramsMatch,
           "casualty canon: web evacuation defaults equal the desktop knobs");
 
-    // Refuges are computed by the port from the bed (part of what's tested).
-    const refuges = nearestRefuges(town, grid, bed, p);
+    // The evacuation lookup the port computes from the bed + roads (part
+    // of what's tested): the network route PLAN when town.json carries a
+    // road graph (M12c), else the legacy nearest-refuge array. The regional
+    // cases reuse it — detection deltas change the clock, not the routes.
+    const refuges = (town.roads && town.roads.edges.length > 0)
+        ? planEvacuation(town, grid, bed, p)
+        : nearestRefuges(town, grid, bed, p);
     for (const mode of ["day", "night"]) {
         const daytime = mode === "day";
         const rep = assessCasualties(town, grid, bed, hazard, p, daytime,
