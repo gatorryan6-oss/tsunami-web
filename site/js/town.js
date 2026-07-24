@@ -115,6 +115,30 @@ export async function loadTown(url = "data/town.json") {
                 throw new Error(`${url}: road edge ${k} [${u},${v}] is ` +
                                 `out of range or a self-loop`);
             }
+            // Zero-length edges divide by zero in the router's segment
+            // projection, and desktop/browser recover from the NaN in
+            // OPPOSITE directions — one would silently reroute the whole
+            // town here only. Mirrors the desktop's _validate_roads.
+            const ddx = rr.nodes[v][0] - rr.nodes[u][0];
+            const ddy = rr.nodes[v][1] - rr.nodes[u][1];
+            if (!(ddx * ddx + ddy * ddy > 0.0)) {
+                throw new Error(`${url}: road edge ${k} has zero length`);
+            }
+            // An unknown kind indexes past the renderers' width/color
+            // tables and kills the 3D scene with an opaque TypeError.
+            if (rr.kind[k] !== 0 && rr.kind[k] !== 1 && rr.kind[k] !== 2) {
+                throw new Error(`${url}: road edge ${k} has unknown kind ` +
+                                `${rr.kind[k]}`);
+            }
+        }
+        // Corruption tripwire against the bake-time summary, the same way
+        // the building count is checked below.
+        const s0 = raw.summary || {};
+        if (s0.road_nodes !== undefined &&
+            (s0.road_nodes !== nNodes || s0.road_edges !== rr.edges.length)) {
+            throw new Error(`${url}: road graph is ${nNodes} nodes / ` +
+                            `${rr.edges.length} edges but the bake recorded ` +
+                            `${s0.road_nodes}/${s0.road_edges} — truncated?`);
         }
         roads = { nodes: rr.nodes, edges: rr.edges, kind: rr.kind };
     }

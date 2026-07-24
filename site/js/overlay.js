@@ -186,25 +186,59 @@ export class TownOverlay {
         const roads = town.roads;
         if (!roads || roads.edges.length === 0) return;
         const { ctx, grid } = this;
+        // save/restore: canvas 2D state is persistent and this method runs
+        // FIRST in render(), so leaking lineCap/lineJoin="round" (plus
+        // strokeStyle and lineWidth) would silently round the corners of
+        // the inset locator box, the inset border and every critical-
+        // building ring drawn afterwards — chrome that was square before
+        // roads existed.
+        ctx.save();
         ctx.lineCap = "round";
         ctx.lineJoin = "round";
+        // Edge indices bucketed by kind, and every node's uv, computed ONCE
+        // per road graph instead of per frame: render() runs on every
+        // animation frame and used to rescan all edges three times (two
+        // thirds of that scan was a no-op `continue`) and recompute both
+        // endpoints' uv for every edge, twice over — main map and inset.
+        // The graph never mutates, so identity is a sound cache key.
+        if (this._roadCacheFor !== roads || this._roadCacheGrid !== grid) {
+            const byKind = [[], [], []];
+            for (let e = 0; e < roads.edges.length; e++) {
+                const k = roads.kind[e];
+                if (byKind[k]) byKind[k].push(e);
+            }
+            const nU = new Float64Array(roads.nodes.length);
+            const nV = new Float64Array(roads.nodes.length);
+            for (let m = 0; m < roads.nodes.length; m++) {
+                const q = uvOf(grid, roads.nodes[m][0], roads.nodes[m][1]);
+                nU[m] = q.u;
+                nV[m] = q.v;
+            }
+            this._roadCacheFor = roads;
+            this._roadCacheGrid = grid;
+            this._roadByKind = byKind;
+            this._roadNodeU = nU;
+            this._roadNodeV = nV;
+        }
+        const byKind = this._roadByKind;
+        const nU = this._roadNodeU, nV = this._roadNodeV;
         for (const kind of [0, 1, 2]) {
+            const list = byKind[kind];
+            if (list.length === 0) continue;
             ctx.strokeStyle = ROAD_COLOR[kind];
             ctx.lineWidth = Math.max(floors[kind],
                                      ROAD_WIDTH_M[kind] * view.scale);
             ctx.beginPath();
-            for (let e = 0; e < roads.edges.length; e++) {
-                if (roads.kind[e] !== kind) continue;
-                const [ui, vi] = roads.edges[e];
-                const a = uvOf(grid, roads.nodes[ui][0], roads.nodes[ui][1]);
-                const b = uvOf(grid, roads.nodes[vi][0], roads.nodes[vi][1]);
-                const [ax, ay] = view.px(a.u, a.v);
-                const [bx, by] = view.px(b.u, b.v);
+            for (let q = 0; q < list.length; q++) {
+                const [ui, vi] = roads.edges[list[q]];
+                const [ax, ay] = view.px(nU[ui], nV[ui]);
+                const [bx, by] = view.px(nU[vi], nV[vi]);
                 ctx.moveTo(ax, ay);
                 ctx.lineTo(bx, by);
             }
             ctx.stroke();
         }
+        ctx.restore();
     }
 
     _drawBuildings(town, view, colorOf, rings = false) {

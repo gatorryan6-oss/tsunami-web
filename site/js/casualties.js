@@ -9,19 +9,36 @@
 // where the flow is fast (moving water sweeps people off their feet long
 // before it would drown them standing). Evacuation success turns on three
 // gates: LEAD TIME (people start at quake + detection + reaction and need
-// distance/speed to reach refuge; the margin vs the wave's arrival at their
-// building sets success through a soft logistic), REFUGE (nearest ground
-// >= refuge_min_elev, recomputed after the quake since subsidence can drown
-// a refuge), and ROUTE (the straight path is sampled against the arrival
+// route-time seconds to reach refuge; the margin vs the wave's arrival at
+// their building sets success through a soft logistic), REFUGE (nearest
+// ground >= refuge_min_elev, recomputed after the quake since subsidence
+// can drown a refuge), and ROUTE (the path is sampled against the arrival
 // field; if the water gets there first the route is cut to a scramble
 // floor). Fatalities are reported SEPARATELY from dollar losses, always.
+//
+// M12b — ROADS CARRY THE EVACUATION. A town with a road graph routes every
+// walker over it (routing.js): off-road to the best access point (SLOW),
+// along the network at full pace, then off-road up to refuge — with a pure
+// beeline still winning where it is genuinely faster. The route-cut gate
+// samples the ACTUAL polyline, so one low flooded link cuts everyone routed
+// through it. A town WITHOUT roads keeps the legacy full-speed beeline so
+// older data tells its original story.
+//
+// HOW EXACTLY THIS MATCHES THE DESKTOP (measured, not aspirational):
+//   * the routing/geometry layer is BIT-FOR-BIT — see routing.js's rules;
+//   * the fatality and logistic layer agrees to ~1 ulp only, because
+//     Math.log/Math.exp are not correctly-rounded IEEE operations and V8's
+//     differ from numpy's in the last bit;
+//   * the headline totals are summed sequentially here but pairwise by
+//     numpy, another sub-ulp difference.
+// The contract's 1e-9 tolerance is therefore deliberate, not slack.
 //
 // Hazards arrive through getHazardFields() only; the bed is the POST-event
 // bed (solver.b after coseismic) so refuge heights are the ground people
 // actually stand on.
 
 import { erf } from "./fragility.js";
-import { planEvacuation, refugePoints } from "./routing.js";
+import { planEvacuation, refugePoints, rnd } from "./routing.js";
 
 const SQRT2 = Math.SQRT2;
 
@@ -72,8 +89,8 @@ export function nearestRefuges(town, grid, bed, params) {
 
     for (let k = 0; k < nB; k++) {
         const b = town.buildings[k];
-        const bi = Math.min(n - 1, Math.max(0, Math.round((b.x - xmin) / dx)));
-        const bj = Math.min(n - 1, Math.max(0, Math.round((b.y - ymin) / dx)));
+        const bi = Math.min(n - 1, Math.max(0, rnd((b.x - xmin) / dx)));
+        const bj = Math.min(n - 1, Math.max(0, rnd((b.y - ymin) / dx)));
         if (mask[bj * n + bi]) {
             out[2 * k] = b.x; out[2 * k + 1] = b.y;   // already safe
             continue;
@@ -103,8 +120,8 @@ function routeCutAlong(grid, hazard, path, departS, factor, params) {
             const u = q / (nS - 1);
             const x = x0 + ddx * u;
             const y = y0 + ddy * u;
-            const i = Math.min(n - 1, Math.max(0, Math.round((x - xmin) / dx)));
-            const j = Math.min(n - 1, Math.max(0, Math.round((y - ymin) / dx)));
+            const i = Math.min(n - 1, Math.max(0, rnd((x - xmin) / dx)));
+            const j = Math.min(n - 1, Math.max(0, rnd((y - ymin) / dx)));
             const cell = j * n + i;
             const arr = hazard.arrival[cell];
             if (arr < 0.0) continue;
@@ -121,15 +138,18 @@ function routeCutAlong(grid, hazard, path, departS, factor, params) {
  *  Port of _route_cut — ceil sampling (spacing <= dx). */
 function routeCut(grid, hazard, x0, y0, x1, y1, departS, speed, params) {
     const { n, dx, xmin, ymin } = grid;
-    const length = Math.hypot(x1 - x0, y1 - y0);
+    // Plain sqrt, not Math.hypot — the parity rules in routing.js forbid
+    // hypot because the two implementations disagree by ulps.
+    const _dxl = x1 - x0, _dyl = y1 - y0;
+    const length = Math.sqrt(_dxl * _dxl + _dyl * _dyl);
     const nS = Math.max(2, Math.ceil(length / dx) + 1);
     const v = Math.max(speed, 0.1);
     for (let s = 0; s < nS; s++) {
         const t = s / (nS - 1);
         const x = x0 + (x1 - x0) * t;
         const y = y0 + (y1 - y0) * t;
-        const i = Math.min(n - 1, Math.max(0, Math.round((x - xmin) / dx)));
-        const j = Math.min(n - 1, Math.max(0, Math.round((y - ymin) / dx)));
+        const i = Math.min(n - 1, Math.max(0, rnd((x - xmin) / dx)));
+        const j = Math.min(n - 1, Math.max(0, rnd((y - ymin) / dx)));
         const cell = j * n + i;
         const arr = hazard.arrival[cell];
         const walkerT = departS + (length * t) / v;
@@ -151,7 +171,7 @@ export function assessCasualties(town, grid, bed, hazard, params, daytime,
                                  refuges = null, tQuakeS = null) {
     const nB = town.buildings.length;
     const per = new Float64Array(nB);
-    if (nB === 0) return makeReport(daytime, 0, 0, 0, 1.0, 0, per, params);
+    if (nB === 0) return makeReport(daytime, 0, 0, 0, 1.0, 0, per);
     // A town WITH roads evacuates over the network (M12b); a roadless one
     // keeps the legacy full-speed beeline. `refuges` is the app's shared
     // cache slot — an EvacPlan (detected by .neededBaseS) or a Float64Array
@@ -176,7 +196,7 @@ export function assessCasualties(town, grid, bed, hazard, params, daytime,
         people[k] = daytime ? bt.occupancy_day : bt.occupancy_night;
         present += people[k];
     }
-    present = Math.round(present);
+    present = Math.trunc(present);   // int() on the desktop: truncate
 
     // First stamped arrival over the whole field (the wave's map entry).
     let stampedMin = Infinity;
@@ -186,7 +206,7 @@ export function assessCasualties(town, grid, bed, hazard, params, daytime,
     }
     if (stampedMin === Infinity) {
         // No wave yet: nobody at risk.
-        return makeReport(daytime, present, 0, 0, 1.0, 0, per, params);
+        return makeReport(daytime, present, 0, 0, 1.0, 0, per);
     }
     const tQuake = tQuakeS === null ? stampedMin
                                     : Math.min(tQuakeS, stampedMin);
@@ -195,8 +215,8 @@ export function assessCasualties(town, grid, bed, hazard, params, daytime,
     let fatalities = 0, atRisk = 0, peopleEvac = 0, peopleSum = 0;
     for (let k = 0; k < nB; k++) {
         const b = town.buildings[k];
-        const cell = Math.min(n - 1, Math.max(0, Math.round((b.y - ymin) / dx))) * n
-                   + Math.min(n - 1, Math.max(0, Math.round((b.x - xmin) / dx)));
+        const cell = Math.min(n - 1, Math.max(0, rnd((b.y - ymin) / dx))) * n
+                   + Math.min(n - 1, Math.max(0, rnd((b.x - xmin) / dx)));
         const depth = hazard.depth[cell];
         const speed = hazard.speed[cell];
         const arrival = hazard.arrival[cell];
@@ -230,8 +250,9 @@ export function assessCasualties(town, grid, bed, hazard, params, daytime,
                 needed = plan.neededBaseS[k] / factor;
             } else {
                 const v = params.walkSpeedMS * factor;
-                const dist = Math.hypot(refuges[2 * k] - b.x,
-                                        refuges[2 * k + 1] - b.y);
+                const _rdx = refuges[2 * k] - b.x;   // plain sqrt, never
+                const _rdy = refuges[2 * k + 1] - b.y;  // Math.hypot
+                const dist = Math.sqrt(_rdx * _rdx + _rdy * _rdy);
                 needed = dist / Math.max(v, 0.1);
             }
             const margin = arrival >= 0.0
@@ -260,7 +281,7 @@ export function assessCasualties(town, grid, bed, hazard, params, daytime,
     const weightedE = peopleSum > 0 ? peopleEvac / peopleSum : 1.0;
     return makeReport(daytime, present, fatalities,
                       fatalities * params.injuriesPerFatality,
-                      weightedE, Math.round(atRisk), per, params);
+                      weightedE, Math.trunc(atRisk), per);
 }
 
 function makeReport(daytime, present, fatalities, injuries, evacSuccess,

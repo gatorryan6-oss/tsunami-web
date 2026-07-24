@@ -485,6 +485,13 @@ async function main() {
             if (!pendingFire || solver !== mySolver) return;
             pendingFire = false;
             fireScenarioSource(solver, scenarioData);
+            // Scenario C's coseismic step rewrites solver.b in place and the
+            // 3D terrain lifts its vertices straight from that texture, so
+            // the ground drops the frame the quake fires. Re-drape the road
+            // ribbons onto the new bed or they hang in the air above it —
+            // this is the only place the web port's bed ever changes.
+            // Display only: the router reads the graph, never the drape.
+            if (scene3d) scene3d.setRoads(town, solver.b);
             sim.paused = false;
             $("run").textContent = "Pause";
         }, delayMs);

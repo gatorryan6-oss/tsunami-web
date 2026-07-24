@@ -1007,3 +1007,27 @@ M12 ROADS ARC COMPLETE on both repos (desktop + web). Everything is
 COMMITTED, NOT PUSHED — the web push auto-deploys to
 tsunami-web.pages.dev, held for the user. NEXT: M13 polish (town look,
 map/overlay, HUD — the user picked all three).
+
+## 2026-07-24 — M12 review pass (web half)
+
+See the desktop BUILDLOG entry of the same date for the full finding
+list. Web changes, none of which move a number (contract still 32/32,
+same machine-epsilon agreement):
+
+- routing.js / town.js: degenerate (zero-length) edges are neutralized
+  identically to the desktop and rejected at load. They would otherwise
+  have flipped the two routers in OPPOSITE directions.
+- casualties.js: plain sqrt instead of Math.hypot in the legacy path
+  (the parity rules forbid hypot; it disagreed on 171 of 308 real road
+  geometries); new shared rnd() half-to-even to match numpy for every
+  world-to-cell index; present/atRisk truncate like Python int(); the
+  dropped makeReport argument removed; module header rewritten for the
+  network model with an honest statement of what is bit-for-bit.
+- town.js: unknown road kinds rejected (they used to kill the 3D view
+  with an opaque TypeError); baked road_nodes/road_edges now used as the
+  corruption tripwire they were added for.
+- app.js: roads re-draped when the coseismic source fires - scenario C
+  used to drop the terrain while the ribbons hovered. Verified live.
+- overlay.js: save/restore around _drawRoads (it was leaking round line
+  caps into the inset chrome and building rings); per-graph caching of
+  edge buckets and node uv, pixel-identical.

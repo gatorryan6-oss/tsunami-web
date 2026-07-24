@@ -20,6 +20,20 @@
 //   - every argmin is first-wins over a FIXED enumeration order (refuge
 //     frontier row-major then extra refuges; edges in baked order).
 
+/** Round half-to-EVEN, matching numpy's np.round / Python's round().
+ *  Math.round is half-UP, so at an exact .5 the two engines would pick
+ *  different grid cells for a building or a route sample. No current
+ *  sample sits within 1e-5 of a tie, so this is a no-op on the frozen
+ *  canon — it just removes the landmine. Lives here, the lower-level
+ *  module, so casualties.js can import it without a cycle. */
+export function rnd(v) {
+    const f = Math.floor(v);
+    const d = v - f;
+    if (d > 0.5) return f + 1;
+    if (d < 0.5) return f;
+    return f % 2 === 0 ? f : f + 1;
+}
+
 /** {mask, rx, ry}: the refuge-cell mask (Uint8Array n*n) and every
  *  candidate refuge POINT — frontier cells of the mask (row-major scan)
  *  then the extra refuges (towers) in list order. Mirrors
@@ -74,8 +88,8 @@ export function planEvacuation(town, grid, bed, params) {
     for (let k = 0; k < nB; k++) {
         const b = town.buildings[k];
         bx[k] = b.x; by[k] = b.y;
-        const bi = Math.min(n - 1, Math.max(0, Math.round((b.x - xmin) / dx)));
-        const bj = Math.min(n - 1, Math.max(0, Math.round((b.y - ymin) / dx)));
+        const bi = Math.min(n - 1, Math.max(0, rnd((b.x - xmin) / dx)));
+        const bj = Math.min(n - 1, Math.max(0, rnd((b.y - ymin) / dx)));
         if (mask[bj * n + bi]) {
             onRef[k] = 1;
             needed[k] = 0.0;
@@ -175,6 +189,12 @@ export function planEvacuation(town, grid, bed, params) {
         let tBest = Infinity, eBest = 0, useUBest = true;
         let pxBest = 0, pyBest = 0, dAccBest = 0, dUBest = 0, dVBest = 0;
         for (let e = 0; e < nEdges; e++) {
+            // Degenerate edge: skip it. Mirrors routing.py forcing t_via to
+            // +inf there — without this the NaN it produces would be handled
+            // OPPOSITELY by the two engines (numpy's argmin picks the first
+            // NaN; this loop's first-wins < never picks it), and one bad edge
+            // would reroute the entire town in the browser only.
+            if (!(eL2[e] > 0.0)) continue;
             let s = ((bx[k] - ex0[e]) * edx[e] + (by[k] - ey0[e]) * edy[e]) / eL2[e];
             if (s < 0.0) s = 0.0; else if (s > 1.0) s = 1.0;
             const px = ex0[e] + s * edx[e];
