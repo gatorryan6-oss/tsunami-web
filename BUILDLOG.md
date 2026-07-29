@@ -1066,3 +1066,33 @@ clean; close-up + mid-range screenshots confirm gabled silhouettes and
 untouched flat-roofed commercial.
 
 NEXT (M13 continues): map/overlay polish, HUD polish.
+
+## 2026-07-29 — M14d part 2 (web): the bay_ridge world is the web canon
+
+Desktop counterpart: same-date entry in ../tsunami simulator/BUILDLOG.md
+(M14a-M14d part 1: terrain arc, world pick, capacity probe, re-bake).
+
+- site/data/ replaced wholesale from port_package/reference/ (commit
+  33dfa9e over there): all three scenarios' bed/dz/snapshots/inundation/
+  cpu_divergence/params JSONs + town.json (1,700 buildings, pop 7,201,
+  $0.89B, 699 road edges) + phase2_canon.json (new contract numbers:
+  loss 70% of $0.89B, collapse 1,125, day ~4,517 of 4,710, night
+  ~6,712 of 7,201, regional unwarned ~4,438 vs +EWS ~458 — evac 90%;
+  the bay town's refuge geography makes the EWS lesson STRONGER).
+- Verified on a fresh origin (port 5083, dodging the ES-module cache):
+  contract page 32/32 PASS — the browser reproduces every re-priced
+  desktop number; parity page PASS all three scenarios against the new
+  frozen references (extent unions 1,665 / 4,906 match exactly);
+  verify.py PASS; 18/18 invariants; app boots with zero console errors.
+- Perf with 2x town (this machine): 3D draw submit ~0.1 ms (instancing
+  doesn't notice 1,700), damage+casualty assessment 427 ms cold (first
+  call plans routes over the 699-edge graph, then cached) / ~73 ms warm
+  at the 30-frame cadence. Fine here; on Chromebooks the warm cost may
+  read as brief hitches during runs — if so, the honest lever is a
+  slower assessment cadence, a UI decision deferred.
+- Display paths all adapt untouched (they are data-driven): 2D map +
+  inset frame the bay town, 3D/beach render it with the M13a pitched
+  roofs, roads drape on the new bed.
+
+COMMITTED, NOT PUSHED (push auto-deploys tsunami-web.pages.dev — held
+for the user, same as always).

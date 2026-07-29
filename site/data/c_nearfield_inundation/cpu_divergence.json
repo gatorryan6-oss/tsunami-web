@@ -6,28 +6,28 @@
   },
   {
     "file": "h_t00300.npy",
-    "rel_linf": 3.945561462336772e-06,
-    "rel_l2_wet": 1.0316352756088627e-06
+    "rel_linf": 3.370642305797453e-06,
+    "rel_l2_wet": 8.133293577634008e-07
   },
   {
     "file": "h_t00900.npy",
-    "rel_linf": 5.978156563456764e-06,
-    "rel_l2_wet": 2.4527613079409168e-06
+    "rel_linf": 5.599368114764649e-06,
+    "rel_l2_wet": 2.162437323816555e-06
   },
   {
     "file": "h_t01500.npy",
-    "rel_linf": 1.0317283996365724e-05,
-    "rel_l2_wet": 3.975258430217943e-06
+    "rel_linf": 1.0492135732748467e-05,
+    "rel_l2_wet": 2.405718529874555e-06
   },
   {
     "file": "h_t02400.npy",
-    "rel_linf": 2.1693375535268135e-05,
-    "rel_l2_wet": 4.3143658452488805e-06
+    "rel_linf": 2.071877028965637e-05,
+    "rel_l2_wet": 1.110031037082813e-05
   },
   {
     "file": "inundation_final",
-    "extent_mismatch_cells": 0,
-    "extent_union_cells": 4916,
-    "jaccard_distance": 0.0
+    "extent_mismatch_cells": 1,
+    "extent_union_cells": 4906,
+    "jaccard_distance": 0.00020383204239706482
   }
 ]

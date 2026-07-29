@@ -30,29 +30,29 @@
   "snapshots": [
     {
       "t_requested_s": 60.0,
-      "t_actual_s": 60.23680179952137
+      "t_actual_s": 60.232589697514975
     },
     {
       "t_requested_s": 120.0,
-      "t_actual_s": 120.07730292958828
+      "t_actual_s": 120.0689122537765
     },
     {
       "t_requested_s": 180.0,
-      "t_actual_s": 180.3129782323284
+      "t_actual_s": 180.30095098557675
     },
     {
       "t_requested_s": 240.0,
-      "t_actual_s": 240.15293572426623
+      "t_actual_s": 240.136301984135
     },
     {
       "t_requested_s": 300.0,
-      "t_actual_s": 300.38940495098433
+      "t_actual_s": 300.36860108601127
     }
   ],
   "end_s": 300.0,
   "sampling_rule": "a snapshot is the state at the FIRST substep whose cumulative t >= t_requested; exporters and the browser test must both follow it",
   "provenance": {
-    "commit": "36adb05",
+    "commit": "4399700",
     "date": "2026-07-16",
     "solver": "GPUNonlinearSWESolver (production path), standalone context"
   }
