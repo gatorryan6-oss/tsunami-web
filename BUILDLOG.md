@@ -1031,3 +1031,38 @@ same machine-epsilon agreement):
 - overlay.js: save/restore around _drawRoads (it was leaking round line
   caps into the inset chrome and building rings); per-graph caching of
   edge buckets and node uv, pixel-identical.
+
+## 2026-07-29 — M13a: pitched roofs (first slice of M13 town look)
+
+Homes now have gable roofs in the 3D and beach views; the town reads as
+a town instead of a field of shipping containers.
+
+- `scene3d.js`: the shared unit-cube mesh is now a 48-vertex "unit
+  building" — the same walls, with the flat top replaced by two roof
+  slopes plus two triangular gable ends, ridge vertices at unit z = 2.
+  The instance buffer grows from 11 to 12 floats: the new float is the
+  roof RISE IN METERS (pitch 0.5 x half the footprint — a ~27°
+  residential pitch; 2.75 m on a wood home, 3.25 m on masonry).
+  wood_home + masonry_home get a rise (781 of 850 buildings); every
+  other type gets 0, which collapses the slopes into exactly the old
+  flat top and the gables into nothing — so the whole town is STILL one
+  instanced draw and civic/commercial buildings render as before.
+- `building.vert`: unit z in [0,1] scales by building height as always;
+  the unit above 1 maps to the rise in raw meters. Slope faces carry
+  marker normals (0, ±1, 1) and the shader rebuilds the true normal
+  from the per-instance pitch (rise over half-footprint), so lighting
+  is correct at any pitch and flat roofs shade exactly as before.
+  Pitched roofs get a 0.65 albedo tint (shingle over siding); flat
+  tops keep full color so civic buildings stay identifiable from the
+  orbit view. The tint multiplies i_color, so the damage-tint seam
+  (setTownColors) carries onto roofs automatically.
+
+Display only — no physics, casualty, or canon quantity reads building
+shape. Verified: contract page 32/32 with all canon numbers identical;
+verify.py PASS; 18/18 invariant tests; live in-browser gl.getError()==0
+with 850 instances x 12 floats (781 pitched / 69 flat, rise 2.75 m
+sampled); damage-seam smoke test (setTownColors red -> draw -> restore)
+clean; close-up + mid-range screenshots confirm gabled silhouettes and
+untouched flat-roofed commercial.
+
+NEXT (M13 continues): map/overlay polish, HUD polish.

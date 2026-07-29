@@ -65,14 +65,28 @@ const ROAD_COLOR = [
     [0.17, 0.17, 0.19],   // arterial
 ];
 
-/** 36 vertices (position xyz + normal xyz) of a unit cube, base at z = 0 —
- *  the desktop _unit_cube(), row for row. */
-function unitCube() {
+// Gable roof rise as a fraction of the half-footprint (rise over run —
+// 0.5 is a ~27° residential pitch). Homes only; every other type keeps a
+// rise of 0, which renders as the flat top it always had. Display only —
+// no physics, casualty, or canon quantity reads building shape.
+const ROOF_PITCH = 0.5;
+const PITCHED_TYPES = new Set(["wood_home", "masonry_home"]);
+
+// Vertices per building in the instanced mesh (see unitBuilding()).
+const BUILDING_VERTS = 48;
+
+/** 48 vertices (position xyz + normal xyz) of a unit building: the
+ *  desktop _unit_cube() walls (base z = 0, eave z = 1), with the flat
+ *  top replaced by a gable roof whose ridge sits at z = 2. The vertex
+ *  shader maps unit z above 1 to the per-instance roof rise in METERS,
+ *  so a rise of 0 collapses the two slopes into exactly the old flat
+ *  top and the gable triangles into nothing. Slope faces carry MARKER
+ *  normals (0, ±1, 1) — the true normal depends on the per-instance
+ *  pitch, so the vertex shader rebuilds it. */
+function unitBuilding() {
     const faces = [
         [[0, 0, -1], [[-.5, -.5, 0], [.5, .5, 0], [.5, -.5, 0],
                       [-.5, -.5, 0], [-.5, .5, 0], [.5, .5, 0]]],
-        [[0, 0, 1], [[-.5, -.5, 1], [.5, -.5, 1], [.5, .5, 1],
-                     [-.5, -.5, 1], [.5, .5, 1], [-.5, .5, 1]]],
         [[0, -1, 0], [[-.5, -.5, 0], [.5, -.5, 0], [.5, -.5, 1],
                       [-.5, -.5, 0], [.5, -.5, 1], [-.5, -.5, 1]]],
         [[0, 1, 0], [[-.5, .5, 0], [.5, .5, 1], [.5, .5, 0],
@@ -81,8 +95,16 @@ function unitCube() {
                       [-.5, -.5, 0], [-.5, -.5, 1], [-.5, .5, 1]]],
         [[1, 0, 0], [[.5, -.5, 0], [.5, .5, 0], [.5, .5, 1],
                      [.5, -.5, 0], [.5, .5, 1], [.5, -.5, 1]]],
+        // Roof: south slope, north slope (marker normals), then the two
+        // vertical gable ends (wall material, plain ±x normals).
+        [[0, -1, 1], [[-.5, -.5, 1], [.5, -.5, 1], [.5, 0, 2],
+                      [-.5, -.5, 1], [.5, 0, 2], [-.5, 0, 2]]],
+        [[0, 1, 1], [[-.5, .5, 1], [.5, 0, 2], [.5, .5, 1],
+                     [-.5, .5, 1], [-.5, 0, 2], [.5, 0, 2]]],
+        [[1, 0, 0], [[.5, -.5, 1], [.5, .5, 1], [.5, 0, 2]]],
+        [[-1, 0, 0], [[-.5, -.5, 1], [-.5, 0, 2], [-.5, .5, 1]]],
     ];
-    const out = new Float32Array(36 * 6);
+    const out = new Float32Array(BUILDING_VERTS * 6);
     let k = 0;
     for (const [norm, verts] of faces) {
         for (const v of verts) {
@@ -127,12 +149,13 @@ export class Scene3D {
 
         this.quad = createQuad(gl);   // sky's fullscreen pair
 
-        // Town: one unit cube + a per-instance buffer (11 floats each:
-        // center xyz, scale xyz, rot cos/sin, color rgb) — the whole town
-        // in a single instanced draw, exactly the desktop TownRenderer.
+        // Town: one unit building + a per-instance buffer (12 floats each:
+        // center xyz, scale xyz, rot cos/sin, color rgb, roof rise m) —
+        // the whole town in a single instanced draw, exactly the desktop
+        // TownRenderer (plus the M13a gable roofs).
         this.cubeVbo = gl.createBuffer();
         gl.bindBuffer(gl.ARRAY_BUFFER, this.cubeVbo);
-        gl.bufferData(gl.ARRAY_BUFFER, unitCube(), gl.STATIC_DRAW);
+        gl.bufferData(gl.ARRAY_BUFFER, unitBuilding(), gl.STATIC_DRAW);
         this.instVbo = gl.createBuffer();
         this.townVao = gl.createVertexArray();
         gl.bindVertexArray(this.townVao);
@@ -142,11 +165,12 @@ export class Scene3D {
         gl.enableVertexAttribArray(1);                          // in_norm
         gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 24, 12);
         gl.bindBuffer(gl.ARRAY_BUFFER, this.instVbo);
-        const STRIDE = 44;   // 11 floats
+        const STRIDE = 48;   // 12 floats
         for (const [loc, size, off] of [[2, 3, 0],   // i_center
                                         [3, 3, 12],  // i_scale
                                         [4, 2, 24],  // i_rot
-                                        [5, 3, 32]]) // i_color
+                                        [5, 3, 32],  // i_color
+                                        [6, 1, 44]]) // i_roof
         {
             gl.enableVertexAttribArray(loc);
             gl.vertexAttribPointer(loc, size, gl.FLOAT, false, STRIDE, off);
@@ -278,10 +302,10 @@ export class Scene3D {
             return;
         }
         const count = town.buildings.length;
-        const data = new Float32Array(count * 11);
+        const data = new Float32Array(count * 12);
         for (let k = 0; k < count; k++) {
             const b = town.buildings[k];
-            const o = k * 11;
+            const o = k * 12;
             data[o + 0] = b.x;
             data[o + 1] = b.y;
             data[o + 2] = b.gz - SINK_M;
@@ -293,6 +317,10 @@ export class Scene3D {
             data[o + 8] = b.type.color[0];
             data[o + 9] = b.type.color[1];
             data[o + 10] = b.type.color[2];
+            // Gable rise in meters: pitch x half the footprint. 0 for
+            // every non-home type = the flat top, unchanged.
+            data[o + 11] = PITCHED_TYPES.has(b.t)
+                ? ROOF_PITCH * 0.5 * b.type.footprint_m : 0.0;
         }
         this._townData = data;
         this.townCount = count;
@@ -363,7 +391,7 @@ export class Scene3D {
         const gl = this.gl;
         if (!this._townData || colors.length !== this.townCount * 3) return;
         for (let k = 0; k < this.townCount; k++) {
-            const o = k * 11;
+            const o = k * 12;
             this._townData[o + 8] = colors[k * 3];
             this._townData[o + 9] = colors[k * 3 + 1];
             this._townData[o + 10] = colors[k * 3 + 2];
@@ -442,7 +470,8 @@ export class Scene3D {
             gl.uniformMatrix4fv(this._b.proj, false, proj);
             gl.uniform3f(this._b.sun, sunDir[0], sunDir[1], sunDir[2]);
             gl.bindVertexArray(this.townVao);
-            gl.drawArraysInstanced(gl.TRIANGLES, 0, 36, this.townCount);
+            gl.drawArraysInstanced(gl.TRIANGLES, 0, BUILDING_VERTS,
+                                   this.townCount);
             gl.bindVertexArray(null);
         }
 
