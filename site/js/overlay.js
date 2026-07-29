@@ -4,6 +4,12 @@
 // display pass re-drawn underneath it (live water) through a zoomed UV
 // window. NOT physics: pure presentation over frozen town data.
 //
+// M13b adds contour layers (depth + 15 m refuge line): segments are
+// marched ONCE per bed epoch (contours.js), pre-stroked into offscreen
+// canvases (one main-view, one inset), and blitted per frame — render()
+// runs every animation frame and re-stroking thousands of segments each
+// time would be the _drawRoads mistake all over again.
+//
 // Coordinate convention (the one thing to get right): every world position
 // goes through texture-uv space with TEXEL-CENTER mapping,
 //     u = ((x - xmin)/dx + 0.5) / n
@@ -12,6 +18,8 @@
 // ~25x and buildings would visibly slide off the waterline if the overlay
 // and the GL window disagreed. j = 0 is the SOUTH row; the screen draws
 // north-up, so v flips to css y. No other flips anywhere (repo rule).
+
+import { contourSegments } from "./contours.js";
 
 /** Texel-center uv of a world position on the solver grid. */
 export function uvOf(grid, x, y) {
@@ -64,6 +72,24 @@ const INSET_MARGIN = 8;      // css px from the canvas corner
 const INSET_FRACTION = 0.38; // of canvas width
 const INSET_MIN = 170, INSET_MAX = 280;
 
+// M13b: contour levels + styles. The flat blue colormap hides the
+// bathymetry (the user's tabled complaint about the bay_ridge world:
+// "the bathymetry isn't obvious, especially in 2D") — depth contours
+// make the shelf break, the bay, and the focusing ridge readable. On
+// land, the 15 m line is THE refuge line the whole evacuation story
+// keys on (matches ARTERIAL_TARGET_ELEV_M / refuge_min_elev_m).
+// [level_m, strokeStyle, lineWidth_css, dash]
+const CONTOUR_SPECS = [
+    [-3000, "rgba(255,255,255,0.10)", 1.0, null],
+    [-2000, "rgba(255,255,255,0.10)", 1.0, null],
+    [-1000, "rgba(255,255,255,0.12)", 1.0, null],
+    [-500,  "rgba(255,255,255,0.14)", 1.0, null],
+    [-130,  "rgba(255,255,255,0.26)", 1.4, null],   // shelf break
+    [-50,   "rgba(255,255,255,0.16)", 1.0, null],
+    [15,    "rgba(224,72,72,0.85)",   1.3, [5, 4]], // refuge line
+];
+const REFUGE_LEVEL = 15;
+
 // Road ribbon widths (m), mirror of roads.KIND_WIDTH_M, and their 2D
 // styling. Streets are a faint gray mesh; the shore road is warm; the
 // ARTERIALS are the evacuation story, so they read gold and heavy. Index
@@ -89,6 +115,14 @@ export class TownOverlay {
     setGrid(grid) { this.grid = grid; }
     setWindow(win) { this.win = win; }
 
+    /** Hand the overlay the CPU bed for contouring. Call at scenario
+     *  setup AND whenever the bed is rewritten in place (scenario C's
+     *  coseismic drop) — each call is a new contour epoch. */
+    setBed(bed) {
+        this.bed = bed;
+        this._bedEpoch = (this._bedEpoch | 0) + 1;
+    }
+
     resize(cssW, cssH, dpr) {
         this.cssW = cssW;
         this.cssH = cssH;
@@ -104,6 +138,58 @@ export class TownOverlay {
         const w = Math.max(INSET_MIN,
                   Math.min(INSET_MAX, Math.round(this.cssW * INSET_FRACTION)));
         return { x: INSET_MARGIN, y: INSET_MARGIN, w, h: w };
+    }
+
+    /** March all contour levels for the current bed (once per epoch). */
+    _ensureContourSegs() {
+        if (!this.bed || !this.grid) return null;
+        if (this._segsEpoch === this._bedEpoch && this._segsGrid === this.grid)
+            return this._segs;
+        const g = this.grid;
+        this._segs = CONTOUR_SPECS.map(([lvl]) => contourSegments(
+            this.bed, g.n, g.dx, g.xmin, g.ymin, lvl));
+        this._segsEpoch = this._bedEpoch;
+        this._segsGrid = g;
+        this._layerKeyMain = null;    // stroked layers are now stale
+        this._layerKeyInset = null;
+        return this._segs;
+    }
+
+    /** Stroke every contour level into an offscreen canvas through
+     *  `view`, clipped to rect (inset) or the whole canvas (main). */
+    _buildLayer(view, rect) {
+        const dpr = this.canvas.width / Math.max(1, this.cssW);
+        const off = document.createElement("canvas");
+        off.width = this.canvas.width;
+        off.height = this.canvas.height;
+        const c = off.getContext("2d");
+        c.setTransform(dpr, 0, 0, dpr, 0, 0);
+        if (rect) {
+            c.beginPath();
+            c.rect(rect.x, rect.y, rect.w, rect.h);
+            c.clip();
+        }
+        const g = this.grid;
+        const segs = this._segs;
+        for (let s = 0; s < CONTOUR_SPECS.length; s++) {
+            const [, style, width, dash] = CONTOUR_SPECS[s];
+            const seg = segs[s];
+            if (!seg.length) continue;
+            c.strokeStyle = style;
+            c.lineWidth = width;
+            c.setLineDash(dash || []);
+            c.beginPath();
+            for (let q = 0; q < seg.length; q += 4) {
+                const a = uvOf(g, seg[q], seg[q + 1]);
+                const b = uvOf(g, seg[q + 2], seg[q + 3]);
+                const [ax, ay] = view.px(a.u, a.v);
+                const [bx, by] = view.px(b.u, b.v);
+                c.moveTo(ax, ay);
+                c.lineTo(bx, by);
+            }
+            c.stroke();
+        }
+        return off;
     }
 
     _fillFor(b) {
@@ -131,7 +217,19 @@ export class TownOverlay {
             scale: this.cssW / (grid.n * grid.dx),   // px per meter
             minPx: 2.0,
         };
-        // Roads first, buildings on top. On the whole-map view the street
+        // Contours under everything: depth lines make the bathymetry
+        // readable, the 15 m dash is the refuge line. Pre-stroked into an
+        // offscreen layer once per (bed epoch, canvas size); blitted here.
+        if (this._ensureContourSegs()) {
+            const keyM = `${this._segsEpoch}|${this.canvas.width}x` +
+                         `${this.canvas.height}`;
+            if (this._layerKeyMain !== keyM) {
+                this._layerMain = this._buildLayer(mainView, null);
+                this._layerKeyMain = keyM;
+            }
+            ctx.drawImage(this._layerMain, 0, 0, this.cssW, this.cssH);
+        }
+        // Roads next, buildings on top. On the whole-map view the street
         // lattice is sub-pixel, so its floor is thin (a faint mesh) while
         // the arterials stay visible leading inland to high ground.
         this._drawRoads(town, mainView, [0.4, 1.0, 1.6]);
@@ -161,6 +259,18 @@ export class TownOverlay {
         ctx.beginPath();
         ctx.rect(rect.x, rect.y, rect.w, rect.h);
         ctx.clip();
+        // Contours in the close-up too — at this zoom the refuge line is
+        // the one that matters (which streets lead past 15 m).
+        if (this._segs) {
+            const keyI = `${this._segsEpoch}|${this.canvas.width}x` +
+                `${this.canvas.height}|${rect.x},${rect.y},${rect.w}` +
+                `|${uv0[0]},${uv0[1]},${uv1[0]},${uv1[1]}`;
+            if (this._layerKeyInset !== keyI) {
+                this._layerInset = this._buildLayer(insetView, rect);
+                this._layerKeyInset = keyI;
+            }
+            ctx.drawImage(this._layerInset, 0, 0, this.cssW, this.cssH);
+        }
         // The close-up shows the full street grid the town is laid on.
         this._drawRoads(town, insetView, [0.9, 1.7, 2.6]);
         this._drawBuildings(town, insetView, colorOf, /*rings=*/true);

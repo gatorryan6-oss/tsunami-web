@@ -411,6 +411,9 @@ async function main() {
             const win = computeInsetWindow(scenarioData.bed, townGrid, town);
             overlay.setWindow(win);
             insetUV = uvWindow(win, townGrid);
+            // M13b: contours (depth + refuge line) march off the live CPU
+            // bed — new scenario, new contour epoch.
+            overlay.setBed(solver.b);
         }
         // 3D scene: mesh + programs depend only on the grid shape (all
         // three reference scenarios share 513² / 120 km); rebuild only if
@@ -492,6 +495,10 @@ async function main() {
             // this is the only place the web port's bed ever changes.
             // Display only: the router reads the graph, never the drape.
             if (scene3d) scene3d.setRoads(town, solver.b);
+            // The 2D contours read the same rewritten bed (the coast
+            // subsides, so the refuge line and depth lines genuinely
+            // move) — new contour epoch.
+            overlay.setBed(solver.b);
             sim.paused = false;
             $("run").textContent = "Pause";
         }, delayMs);

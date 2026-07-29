@@ -1096,3 +1096,36 @@ Desktop counterpart: same-date entry in ../tsunami simulator/BUILDLOG.md
 
 COMMITTED, NOT PUSHED (push auto-deploys tsunami-web.pages.dev — held
 for the user, same as always).
+
+## 2026-07-29 — M13b: map legibility — depth contours, refuge line, map key
+
+Directly answers the user's tabled M14 reservation ("the bathymetry
+isn't obvious, especially in 2D"): the flat blue colormap hid the bay,
+shelf break, and focusing ridge entirely.
+
+- js/contours.js (new): marching-squares iso-contours of a scalar grid,
+  world-coordinate segments, saddle cells split by the cell-center
+  average. Display only.
+- overlay.js: CONTOUR_SPECS = depth lines at 50/130 (shelf break,
+  brighter)/500/1000/2000/3000 m in faint white + the 15 m REFUGE LINE
+  in dashed red (the elevation the whole evacuation story keys on —
+  matches ARTERIAL_TARGET_ELEV_M). Segments march once per bed epoch
+  (new setBed()), get pre-stroked into offscreen layers (main view +
+  inset window), and blit per frame — render() runs every animation
+  frame, so per-frame restroking would repeat the _drawRoads mistake.
+  Draw order: contours under roads under buildings, in both views.
+- app.js: overlay.setBed(solver.b) at scenario setup AND when scenario
+  C's coseismic step rewrites the bed — verified live: refuge-line
+  pixels 1,207 -> 1,386 after the drop (subsided land pulls the 15 m
+  line inland; the contours honestly move with the physics).
+- index.html: "Map key" block in #legend (arterial gold / street gray /
+  refuge dash / depth lines with their levels); inherits the existing
+  body.view3d hide rule — verified hidden in 3D, rendered in 2D.
+
+Verified on fresh origin 5084: zero console errors; contour pixel
+counts sane (1.2k refuge red, 10k depth white); contract still 32/32
+(display only); verify.py PASS; 18/18 invariants. COMMITTED NOT PUSHED.
+
+M13b REMAINING (none — road legend was folded into the map key).
+NEXT in polish: M13c HUD (median-walk-vs-warning + routesCut), M13a
+colour variety (tabled), onboarding (user to spec).

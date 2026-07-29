@@ -141,9 +141,21 @@
     font-size: 0.72rem; color: #9fb3c8; margin-top: 3px;
     font-family: ui-monospace, Consolas, monospace;
   }
-  #colorbar .title, #scalebar .title {
+  #colorbar .title, #scalebar .title, #mapkey .title {
     font-size: 0.75rem; color: #b7c6d6; margin-bottom: 4px;
   }
+  /* M13b map key: what the overlay's lines mean. Lives inside #legend so
+     the existing body.view3d rule hides it in 3D along with the rest. */
+  #mapkey { flex: 0 1 auto; }
+  #mapkey .row {
+    display: flex; align-items: center; gap: 7px;
+    font-size: 0.72rem; color: #9fb3c8; line-height: 1.5;
+  }
+  #mapkey .sw { display: inline-block; width: 22px; height: 0; }
+  #mapkey .sw.art    { border-top: 3px solid rgba(233,172,42,0.92); }
+  #mapkey .sw.street { border-top: 2px solid rgba(120,126,136,0.9); }
+  #mapkey .sw.refuge { border-top: 2px dashed rgba(224,72,72,0.95); }
+  #mapkey .sw.depth  { border-top: 1px solid rgba(255,255,255,0.55); }
   #scalebar .bar {
     height: 0; border-bottom: 3px solid #b7c6d6; position: relative;
   }
@@ -215,6 +227,13 @@
     <div class="title">Distance</div>
     <div class="bar" style="width:110px"></div>
     <div class="labels"><span>0</span><span id="scalelabel">20 km</span></div>
+  </div>
+  <div id="mapkey">
+    <div class="title">Map key</div>
+    <div class="row"><span class="sw art"></span>evacuation arterial</div>
+    <div class="row"><span class="sw street"></span>street grid</div>
+    <div class="row"><span class="sw refuge"></span>15 m refuge line</div>
+    <div class="row"><span class="sw depth"></span>depth contours (50 · 130 · 500 · 1k · 2k · 3k m)</div>
   </div>
 </div>
 <div id="cards">
