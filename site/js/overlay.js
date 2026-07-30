@@ -289,7 +289,9 @@ export class TownOverlay {
         // The close-up shows the full street grid the town is laid on.
         this._drawRoads(town, insetView, [0.9, 1.7, 2.6]);
         this._drawBuildings(town, insetView, colorOf, /*rings=*/true);
-        this._drawWalls(insetView, /*withPending=*/false);
+        // Pending band in the close-up TOO: it is the drawing surface
+        // (one px ~38 m here vs ~180 m on the whole-domain map).
+        this._drawWalls(insetView, /*withPending=*/true);
         ctx.restore();
 
         // Inset chrome: border + label.

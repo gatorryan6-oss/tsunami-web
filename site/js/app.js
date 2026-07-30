@@ -514,6 +514,14 @@ async function main() {
     // Draw mode: 🧱 arms it (2D only — the map is the drawing surface);
     // click 1 anchors, the mouse rubber-bands a live-quoted dashed line,
     // click 2 commits. Esc or right-click cancels.
+    //
+    // BOTH 2D views are drawable, and the TOWN CLOSE-UP is the one that
+    // makes sense (user call): the whole-domain map puts 120 km across
+    // ~660 css px, so one pixel is ~180 m — COARSER than the 234 m grid
+    // cell the wall is built from, and the town is a thumbnail. The
+    // close-up window is ~10.6 km wide, so a pixel is ~38 m and a cell
+    // is ~6 px — the difference between placing a wall and guessing at
+    // one. The big map still works for long regional walls.
     function exitWallDraw() {
         wallDraw = null;
         overlay.setPendingWall(null);
@@ -527,25 +535,60 @@ async function main() {
         canvas.style.cursor = "crosshair";
         $("buildwall").classList.add("arming");
         $("status").textContent =
-            `🧱 seawall, crest ${$("crest").value} m — click the map where ` +
-            `the wall STARTS (Esc cancels)`;
+            `🧱 seawall, crest ${$("crest").value} m — click in the town ` +
+            `close-up (top-left) where the wall STARTS (Esc cancels)`;
     }
 
-    /** Map a mouse event to world meters through the main view's texel-
-     *  center mapping (the exact inverse of overlay uvOf). Returns null
-     *  for clicks inside the inset close-up — that window is a different
-     *  projection and a click there would land ~25x away from where the
-     *  user aimed. */
-    function eventWorldPoint(e) {
+    /** Map a mouse event to world meters, as the exact inverse of the
+     *  projection overlay.render() drew with (uvOf's texel-CENTER
+     *  mapping — a half-texel is invisible on the big map but the
+     *  close-up zooms ~25x, where it is a visible slide).
+     *
+     *  Returns {x, y, view}: "inset" when the pointer is inside the town
+     *  close-up, else "main". Pass `lockView` to hold a rubber-band in
+     *  the view its anchor was placed in — without that lock, dragging
+     *  one pixel past the little window's border would reproject and
+     *  throw the endpoint kilometres away. Inside a locked "inset" drag
+     *  the pointer is CLAMPED to the window instead, so the line stays
+     *  where the user can see it. Null until the grid exists. */
+    function eventWorldPoint(e, lockView = null) {
         const r = canvas.getBoundingClientRect();
-        const px = e.clientX - r.left, py = e.clientY - r.top;
-        const ir = overlay.insetRect();
-        if (px >= ir.x && px <= ir.x + ir.w &&
-            py >= ir.y && py <= ir.y + ir.h) return null;
+        if (!r.width || !r.height) return null;
+        // The overlay's css box is this canvas's box (both are inset:0 in
+        // #viewwrap), but insetRect() is expressed in the overlay's own
+        // css units — rescale in case a resize hasn't been synced yet.
+        const W = overlay.cssW || r.width, H = overlay.cssH || r.height;
+        return worldFromCss((e.clientX - r.left) * (W / r.width),
+                            (e.clientY - r.top) * (H / r.height), lockView);
+    }
+
+    /** The projection inverse itself, in overlay css pixels — split out
+     *  from the event plumbing so automation can probe it (window.__app
+     *  .probePoint) without synthesizing mouse events, which the click
+     *  path's geometry makes hard to verify on a headless canvas. */
+    function worldFromCss(cx, cy, lockView = null) {
+        if (!townGrid) return null;
+        const W = overlay.cssW, H = overlay.cssH;
+        if (!W || !H) return null;
+        const ir = insetUV ? overlay.insetRect() : null;
+        const inInset = !!ir && cx >= ir.x && cx <= ir.x + ir.w &&
+                                cy >= ir.y && cy <= ir.y + ir.h;
+        const view = lockView || (inInset ? "inset" : "main");
+        let u, v;
+        if (view === "inset" && ir) {
+            const qx = Math.max(ir.x, Math.min(ir.x + ir.w, cx));
+            const qy = Math.max(ir.y, Math.min(ir.y + ir.h, cy));
+            const [u0, v0] = insetUV.uv0, [u1, v1] = insetUV.uv1;
+            u = u0 + ((qx - ir.x) / ir.w) * (u1 - u0);
+            v = v0 + ((ir.y + ir.h - qy) / ir.h) * (v1 - v0);
+        } else {
+            u = cx / W;
+            v = 1 - cy / H;
+        }
         const g = townGrid;
-        const u = px / r.width, v = 1 - py / r.height;
         return { x: g.xmin + (u * g.n - 0.5) * g.dx,
-                 y: g.ymin + (v * g.n - 0.5) * g.dx };
+                 y: g.ymin + (v * g.n - 0.5) * g.dx,
+                 view };
     }
 
     /** Blank the outcome cards for a fresh scenario (population persists —
@@ -674,6 +717,8 @@ async function main() {
                          addWall: (x0, y0, x1, y1, crest) =>
                              commitWall({ x0, y0, x1, y1, crest }),
                          removeWall, clearWalls,
+                         probePoint: (cx, cy, lockView = null) =>
+                             worldFromCss(cx, cy, lockView),
                          getWalls: () => walls.map(w => ({ ...w })),
                          getBudget: () => ({ total: BUDGET_TOTAL_USD,
                                              spent: budgetSpent,
@@ -1044,19 +1089,20 @@ async function main() {
     });
     canvas.addEventListener("click", (e) => {
         if (!wallDraw || view3d || !townGrid || !designBed) return;
-        const p = eventWorldPoint(e);
-        if (!p) {
-            $("status").textContent =
-                "draw on the main map, not the close-up window";
-            return;
-        }
         if (wallDraw.x0 === undefined) {
-            wallDraw = { x0: p.x, y0: p.y };
+            const p = eventWorldPoint(e);
+            if (!p) return;
+            // The anchor's view owns the whole drag (see eventWorldPoint).
+            wallDraw = { x0: p.x, y0: p.y, view: p.view };
             overlay.setPendingWall({ x0: p.x, y0: p.y });
             $("status").textContent =
-                "🧱 now click where the wall ENDS (the line quotes live)";
+                `🧱 now click where the wall ENDS — in the ` +
+                `${p.view === "inset" ? "close-up" : "big map"}, same as ` +
+                `the start (the line quotes live)`;
             return;
         }
+        const p = eventWorldPoint(e, wallDraw.view);
+        if (!p) return;
         const w = { x0: wallDraw.x0, y0: wallDraw.y0, x1: p.x, y1: p.y,
                     crest: parseFloat($("crest").value) };
         if (wallLength(w) < townGrid.dx) {
@@ -1071,7 +1117,7 @@ async function main() {
     canvas.addEventListener("mousemove", (e) => {
         if (!wallDraw || wallDraw.x0 === undefined || view3d ||
             !townGrid || !designBed) return;
-        const p = eventWorldPoint(e);
+        const p = eventWorldPoint(e, wallDraw.view);
         if (!p) return;
         const w = { x0: wallDraw.x0, y0: wallDraw.y0, x1: p.x, y1: p.y,
                     crest: parseFloat($("crest").value) };

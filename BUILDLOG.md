@@ -1245,3 +1245,58 @@ MISSING asset with an HTML fallback at status 200, so checking a new
 .js file by status code alone reports success while the build is still
 running — check the response BODY. Reliable wait:
   until curl -sL "<root>/?cb=$RANDOM" | grep -q <new-marker>; do sleep 10; done
+
+## 2026-07-29 — M15a: draw seawalls in the TOWN CLOSE-UP (user call)
+
+User: "being able to build the seawall in the zoomed in pane would make
+more sense than on the general map." Correct, and by a wide margin —
+MEASURED this session: the whole-domain map is 120 km across ~662 css px
+= 181.8 m/px, which is COARSER than the 234 m grid cell a wall is built
+from (a one-pixel slip moves the wall a whole cell). The close-up window
+is 10.01 km across 251 px = 39.9 m/px, so a cell is ~6 px. Drawing in
+the close-up is ~4.6x finer and is now the advertised path.
+
+- app.js: eventWorldPoint() no longer REJECTS clicks in the inset — it
+  detects which view the pointer is in and inverts that view's
+  projection (the inset's uv window + rect, exact inverse of the
+  insetView the overlay draws with). Returns {x, y, view}.
+- The anchor's view OWNS the drag (`wallDraw.view`, passed as lockView
+  on every later move/click). Without that lock, sliding one pixel past
+  the little window's border would reproject through the big map and
+  throw the endpoint kilometres away. Inside a locked inset drag the
+  pointer is CLAMPED to the window instead, so the rubber band stays
+  visible. Prompts name the view ("in the close-up, same as the start").
+- The projection inverse was split out as worldFromCss() and exposed as
+  window.__app.probePoint(cssX, cssY, lockView) — the repo's automation-
+  handle convention, and the only way to verify this geometry when the
+  pane refuses to composite.
+- overlay.js: the pending band now draws in the inset too (was main-view
+  only) — it is the drawing surface. Committed walls already drew there.
+- index.html: button tooltip + Defenses panel copy point at the close-up.
+
+Verified on fresh origin 5086 (canvas had REAL layout this session —
+662 css px — so the geometry could be driven for the first time):
+- Projection round-trip world -> css px -> world is EXACT (0.000 m error)
+  at 3 points in the inset and at the town centre in the main view;
+  view auto-detection correct both ways; the out-of-window clamp
+  returns exactly the border point.
+- REAL click path (synthetic MouseEvents at true page coords, inset):
+  click 1 anchored, mousemove quoted live ("6.0 km, crest 6 m — $99M
+  ($250M in the pot)"), 580 gold px of rubber band INSIDE the inset,
+  click 2 committed a wall whose endpoints land 18.7 m / 20.7 m from
+  the intended world points — half a pixel at this zoom, well inside
+  one 234 m cell. Budget/panel/quote all correct ($99M of $250M).
+- VISUAL CHECK finally done, without a screenshot: composited the GL +
+  overlay inset region and max-pooled it to a 46x46 character map (thin
+  lines survive max-pooling; a plain downsample erases them, and gold
+  ARTERIALS alias into the pending-band colour — both traps hit first).
+  The committed wall reads as ONE continuous vertical line exactly on
+  the water/land boundary seaward of the town, ~6.5 km for a 6.4 km
+  request. The M15 "not yet eyeballed" caveat is now CLOSED for the
+  wall rendering itself.
+- contract 32/32, parity untouched, verify.py PASS, invariants 20/20,
+  zero console errors through arm/draw/commit/clear.
+
+The big map still draws (long regional walls); nothing was removed.
+
+COMMITTED, NOT PUSHED — held for the user (push auto-deploys).

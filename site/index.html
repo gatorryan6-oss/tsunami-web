@@ -232,7 +232,7 @@
   <div class="cgroup">
     <span class="gcap">Defend</span>
     <div class="grow">
-      <button id="buildwall" title="Draw a seawall on the 2D map: click its two ends. The town pays for every meter of height that must be built above the existing ground.">🧱 Seawall</button>
+      <button id="buildwall" title="Draw a seawall by clicking its two ends — best done in the town close-up (top-left of the map), where one pixel is ~38 m instead of ~180 m. The town pays for every meter of height that must be built above the existing ground.">🧱 Seawall</button>
       <input id="crest" type="range" min="3" max="12" value="6" step="1" style="width: 70px;" title="Crest height: how tall the wall stands above sea level. A wave taller than the crest overtops it.">
       <span id="crestval" style="font-size: 0.85rem; min-width: 2.6em;">6 m</span>
     </div>
@@ -298,9 +298,9 @@
   </div>
 </div>
 <div id="defense">
-  <div class="rtitle"><b>Defenses</b> — 🧱 draws a seawall on the map (two
-    clicks). Concrete is priced per meter of height actually built, from a
-    fixed pot.</div>
+  <div class="rtitle"><b>Defenses</b> — 🧱 then click the two ends of your
+    wall in the <b>town close-up</b>. Concrete is priced per meter of height
+    actually built, from a fixed pot.</div>
   <div id="defBudget"></div>
   <div id="defList"></div>
 </div>
