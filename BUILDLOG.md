@@ -1234,5 +1234,14 @@ POT (the desktop's $250M).
   wanted). EWS stays OUTSIDE the pot (it's a counterfactual toggle,
   priced separately in the risk panel — unchanged M11 semantics).
 
-COMMITTED, NOT PUSHED (push auto-deploys tsunami-web.pages.dev — held
-for the user, same as always).
+PUSHED + LIVE 2026-07-29 (user said "push it"): f720b28 -> 95ec7da,
+auto-deployed to https://tsunami-web.pages.dev. VERIFIED ON THE DEPLOYED
+ORIGIN: contract page 32/32 PASS, app boots with zero console errors and
+the 1,700-building canon, a wall built through window.__app quotes the
+same $185M and raises the live bed to 8 m, panel reads "Budget: $185M
+spent of $250M - $65M left", full frame draws with gl.getError()==0.
+DEPLOY-CHECK GOTCHA (new, cost ~2 min): Cloudflare Pages answers a
+MISSING asset with an HTML fallback at status 200, so checking a new
+.js file by status code alone reports success while the build is still
+running — check the response BODY. Reliable wait:
+  until curl -sL "<root>/?cb=$RANDOM" | grep -q <new-marker>; do sleep 10; done
