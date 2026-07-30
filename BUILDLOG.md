@@ -1129,3 +1129,37 @@ counts sane (1.2k refuge red, 10k depth white); contract still 32/32
 M13b REMAINING (none — road legend was folded into the map key).
 NEXT in polish: M13c HUD (median-walk-vs-warning + routesCut), M13a
 colour variety (tabled), onboarding (user to spec).
+
+## 2026-07-29 — M13c: HUD "why" line — median walk vs warning + routes cut
+
+The Evacuation card said HOW MANY escaped; now it says WHY. New third
+line on the card: e.g. scenario C day-unwarned reads
+"walk ~39 min vs ~20 min of warning" — the whole near-field lesson in
+one clause. Verified live: EWS ON buys only ~3 min on the near-field
+event (deaths ~3,967 -> ~3,908) and night jumps to ~6,041 on the SAME
+walk-vs-lead numbers (more people home) — the instrument makes the
+day/night and near-field-EWS lessons legible instead of mysterious.
+
+- casualties.js: assessCasualties now COLLECTS (never influences) three
+  observational stats beside its own loop — per-building median walk
+  time to refuge (critical buildings' slower clocks included), median
+  available lead (arrival - depart) over wet routed buildings, and the
+  count of routes the water itself severed (both network and legacy
+  paths). Exposed as report.stats {medianWalkS, medianLeadS, routesCut,
+  wetRouted}; null on the early returns. The per-building deaths are
+  pinned to desktop canon at machine epsilon, so the additions are
+  fenced with OBSERVATIONAL-ONLY comments — and the contract page
+  passed 32/32 WITH the instrumented loop before this commit, proving
+  no number moved.
+- app.js renderCasualtyLine + index.html: new #evacWhy sub-line on the
+  Evacuation card ("walk ~W min vs ~L min of warning · N routes cut by
+  water"; "no one in the water's path" when dry; "wave never arrives"
+  when nothing is stamped). Re-prices with the ☀/☾ and 🚨 toggles like
+  the rest of the card. Reset path covered via renderCasualtyLine's
+  null branch.
+- Verified on fresh origin 5085: contract 32/32, verify.py PASS, 18/18
+  invariants, zero console errors; live scenario-C run driven to
+  t=3,807 s for the readings above.
+
+M13 POLISH ARC: M13b + M13c done; M13a colour variety still tabled.
+COMMITTED NOT PUSHED.

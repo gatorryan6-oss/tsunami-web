@@ -292,9 +292,25 @@ async function main() {
             $("deathNum").textContent = "—";
             $("deathSub").textContent = "no event yet";
             $("evacNum").textContent = "—";
+            $("evacWhy").textContent = "—";
             $("cardDeaths").classList.remove("bad", "good");
             $("cardEvac").classList.remove("bad", "warn", "good");
             return;
+        }
+        // M13c: the WHY behind the evacuation number — how long the
+        // median walk to refuge takes vs how much lead time people got,
+        // and how many escape routes the water itself severed.
+        const s = c.stats;
+        if (!s || s.wetRouted === 0) {
+            $("evacWhy").textContent = "no one in the water's path";
+        } else {
+            const w = Math.round(s.medianWalkS / 60);
+            const lead = s.medianLeadS === null
+                ? "wave never arrives"
+                : `~${Math.round(s.medianLeadS / 60)} min of warning`;
+            const cut = s.routesCut > 0
+                ? ` · ${s.routesCut} routes cut by water` : "";
+            $("evacWhy").textContent = `walk ~${w} min vs ${lead}${cut}`;
         }
         $("deathNum").textContent =
             `~${Math.round(c.fatalities).toLocaleString("en-US")}`;

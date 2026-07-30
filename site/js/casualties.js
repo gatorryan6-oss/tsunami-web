@@ -212,6 +212,13 @@ export function assessCasualties(town, grid, bed, hazard, params, daytime,
                                     : Math.min(tQuakeS, stampedMin);
     const depart = tQuake + params.detectionDelayS + params.reactionDelayS;
 
+    // M13c HUD stats — OBSERVATIONAL ONLY. Collected beside the loop's
+    // own numbers, never feeding back into them: the per-building deaths
+    // below are pinned to the desktop canon at machine epsilon, so these
+    // arrays may watch the computation but must not touch it.
+    const walkS = [], leadS = [];
+    let routesCut = 0;
+
     let fatalities = 0, atRisk = 0, peopleEvac = 0, peopleSum = 0;
     for (let k = 0; k < nB; k++) {
         const b = town.buildings[k];
@@ -255,6 +262,8 @@ export function assessCasualties(town, grid, bed, hazard, params, daytime,
                 const dist = Math.sqrt(_rdx * _rdx + _rdy * _rdy);
                 needed = dist / Math.max(v, 0.1);
             }
+            walkS.push(needed);                       // HUD stat (observe)
+            if (arrival >= 0.0) leadS.push(arrival - depart);
             const margin = arrival >= 0.0
                 ? (arrival - depart) - needed
                 : 6.0 * params.spreadS;               // wave never reached
@@ -266,11 +275,13 @@ export function assessCasualties(town, grid, bed, hazard, params, daytime,
                     if (path && routeCutAlong(grid, hazard, path, depart,
                                               factor, params)) {
                         e = params.routeCutFloor;
+                        routesCut++;                  // HUD stat (observe)
                     }
                 } else if (routeCut(grid, hazard, b.x, b.y, refuges[2 * k],
                                     refuges[2 * k + 1], depart,
                                     params.walkSpeedMS * factor, params)) {
                     e = params.routeCutFloor;
+                    routesCut++;                      // HUD stat (observe)
                 }
             }
         }
@@ -281,14 +292,33 @@ export function assessCasualties(town, grid, bed, hazard, params, daytime,
     const weightedE = peopleSum > 0 ? peopleEvac / peopleSum : 1.0;
     return makeReport(daytime, present, fatalities,
                       fatalities * params.injuriesPerFatality,
-                      weightedE, Math.trunc(atRisk), per);
+                      weightedE, Math.trunc(atRisk), per, {
+                          // Per-BUILDING medians over wet, routed buildings
+                          // (critical buildings' slower clocks included) —
+                          // the M12b decomposition's "wet-median walk vs
+                          // warning" made a HUD line (M13c).
+                          medianWalkS: median(walkS),
+                          medianLeadS: median(leadS),
+                          routesCut,
+                          wetRouted: walkS.length,
+                      });
+}
+
+/** Plain median of an unsorted array; null when empty. Display only. */
+function median(a) {
+    if (a.length === 0) return null;
+    const s = Array.from(a).sort((x, y) => x - y);
+    const h = s.length >> 1;
+    return s.length % 2 ? s[h] : 0.5 * (s[h - 1] + s[h]);
 }
 
 function makeReport(daytime, present, fatalities, injuries, evacSuccess,
-                    atRisk, perBuilding) {
+                    atRisk, perBuilding, stats = null) {
     return {
         daytime, present, fatalities, injuries, evacSuccess, atRisk,
         perBuilding,
+        // M13c HUD stats (null on the no-town/no-wave early returns).
+        stats,
         summary() {
             const mode = daytime ? "day" : "night";
             return `casualties (${mode}): ~${Math.round(fatalities).toLocaleString("en-US")} ` +
