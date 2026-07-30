@@ -1317,3 +1317,104 @@ count is stable across a few fetches before believing any of it. The
 byte count to expect is the GIT BLOB's (`git show HEAD:path | wc -c`),
 not the working copy's — the working copy has CRLF here and reads
 ~2.7 KB larger.
+
+## 2026-07-30 — M15b: adversarial review pass on the seawall arc
+
+User asked for a rigorous critique ("run impeccable critique"); ran the
+M12-style adversarial pass: three independent reviewers (defense state
+machine / draw-mode interaction / cross-module + desktop fidelity) over
+the M15+M15a code, every claim re-verified against the source before
+fixing. 20 raw findings -> 11 confirmed real -> all fixed. Canon
+untouched throughout (display/app-layer only).
+
+CONFIRMED + FIXED:
+- OVERDRAW RACE (all three reviewers, independently): the budget ledger
+  (spent/quotes/designBed) only updated inside the ASYNC setScenario, so
+  a second wall committed while a rebuild was fetching was quoted and
+  gated against the pre-wall world — two $200M walls both passed the
+  $250M gate. Now the ledger re-prices SYNCHRONOUSLY in commitWall/
+  removeWall/clearWalls via the new replayDefenses() helper; verified
+  live: back-to-back $185M + $376M commits — the second is refused
+  against the true $65M remaining. Side benefit: the defenses panel
+  re-renders at splice time, killing the stale data-i bug where a rapid
+  second ✕ click demolished the WRONG wall.
+- INTERLEAVED setScenario: two overlapping loads each built a solver
+  (~30 MB GL leak per race; last-to-FINISH owned the UI, not the
+  newest). Generation counter: stale calls abort at their await;
+  rebuildWorld's status write is gated on still owning the generation.
+  Verified: Reset + scenario-change + Reset fired back-to-back settles
+  on exactly the newest request, one live solver.
+- UNVALIDATED PROGRAMMATIC INPUT (__app.addWall): crest >= 15 m made
+  the wall REFUGE HIGH GROUND (routing.js masks bed >= 15 — the router
+  would evacuate the town ONTO the seawall); crest = NaN committed a
+  NaN quote (Math.max(bed, NaN) = NaN bed, NaN pot, every later gate
+  false = pot permanently open); Infinity coords hung the tab in an
+  unbounded wallCells loop; fully off-domain walls quoted $0 and
+  committed as phantom "free" walls that stale-marked the whole risk
+  table. commitWall now validates: finite coords+crest, crest in
+  [CREST_MIN_M, CREST_MAX_M], length >= dx, cells > 0 — each refusal
+  loud. wallCells itself returns [] for non-finite input (belt+braces).
+  All six hostile probes verified refused with zero state change.
+- REPLAY DRIFT ALARM CRIED WOLF (desktop-fidelity reviewer): desktop
+  replay_defenses warns on drift then ADOPTS the re-quote
+  (d.quote_usd = quote); the port warned but never adopted, so one
+  legitimate re-price (remove a wall another wall crossed) made the
+  corruption alarm fire on EVERY later rebuild forever. replayDefenses
+  now adopts after warning. Verified live with a crossing pair
+  ($21.7M discounted -> $25.5M honest re-price on removal): exactly ONE
+  warning across the removal + Reset + scenario switch. removeWall's
+  message also no longer promises a "refund" it can't keep (a crossed
+  survivor re-prices UP) — it reports the re-priced ledger; fmtM
+  renders negative ("-$12M") for an overdrawn pot instead of "$-12M".
+- FPS STATUS CLOBBER: frame()'s telemetry writes #status EVERY frame
+  while running (only fpsShown is cadenced), erasing draw-mode prompts,
+  the live quote, and — worst — budget refusals within ~16 ms. New
+  setStatus(msg, holdMs) + statusHoldUntil; the fps writer yields while
+  draw mode is active or a held message is fresh.
+- 1PX BORDER BIAS: #view has a 1px css border; getBoundingClientRect
+  includes it, overlay.cssW (clientWidth) doesn't — every click was
+  skewed up to ±1 px, ~40 m in the close-up, a systematic southeast
+  bias at ~6 px/cell zoom. eventWorldPoint now subtracts clientLeft/Top
+  and scales by clientWidth/Height (the content box).
+- HALF-EVEN ROUNDING: wallCells used Math.round (half-up) where the
+  desktop uses np.round (half-to-even); at an exact .5 cell tie
+  (x = -59414.0625 on the canonical grid is one) the same wall lands in
+  DIFFERENT bed columns web vs desktop. Now imports rnd() from
+  routing.js — the same landmine-removal the routers got in the M12
+  review, and walls/buildings now round ties identically WITHIN the
+  web app too.
+- LOCKED-INSET FALLTHROUGH: worldFromCss with lockView="inset" and no
+  inset (town failed to load) silently fell through to the MAIN map
+  inverse — a ~40 km teleport. Now returns null (probePoint included).
+- ANCHOR AT PRESS: a natural press-drag-release used to anchor at the
+  RELEASE point (walls listen on `click`, which fires at mouseup).
+  Draw mode now anchors on mousedown, rubber-bands during the drag,
+  and a release >5 px away commits directly — press-drag-release draws
+  a wall in one stroke; click-move-click still works (trailing clicks
+  suppressed). Prompt updated; synthetic-click fallback kept for
+  automation.
+- STALE CREST QUOTE: keyboard slider changes mid-draw left the old
+  price on screen while the commit charged the new crest; the crest
+  input now re-prices the pending band (shared quotePendingWall).
+- ENTER-DRAW PROMPT without a town no longer sends the user hunting
+  for a close-up that doesn't exist.
+- TEST GAPS (reviewer 3): test_defenses_are_app_layer_only was a
+  case-SENSITIVE substring ("applyDefenses" contains only "Defenses"
+  and sailed through) and never guarded the actual canon-copy claim —
+  now case-insensitive + pins the Float32Array.from(pristineBed) copy
+  line. test_defense_pricing_is_desktop_mirror pinned two constants
+  while the whole algorithm was free to rot — now pins the dx/2
+  sampling, the mean-built-height x true-length formula, the rnd
+  import, and the max() apply.
+
+NOT BUGS (reviewer claims rejected on verification): scenarioData.bed
+aliasing (solver copies at construction, applyDefenses copies, all
+other readers read-only — confirmed clean by two reviewers
+independently); riskBank epoch stamping; the budget epsilon; overlay
+save/restore hygiene; the inset inverse algebra (exact, verified to
+0.000 m twice).
+
+Verified after the fixes, fresh origin 5087: contract 32/32 (canon
+numbers identical), invariants 20/20 (strengthened), verify.py PASS,
+zero console errors through the entire hostile-probe gauntlet.
+COMMITTED, NOT PUSHED — held for the user (push auto-deploys).

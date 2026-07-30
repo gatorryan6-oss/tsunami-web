@@ -24,6 +24,8 @@
 //     (applyDefenses below). Order matters: a wall crossing another's
 //     raised ground was quoted cheaper.
 
+import { rnd } from "./routing.js";
+
 // $ per meter of length per meter of BUILT height (crest minus existing
 // ground) — illustrative, anchored to Japan's post-Tōhoku program
 // (~$2-3M per km per meter of height). Desktop Seawall.COST_RATE.
@@ -56,13 +58,22 @@ export function wallLength(w) {
 export function wallCells(w, grid) {
     const { n, dx, xmin, ymin } = grid;
     const length = wallLength(w);
+    // Non-finite endpoints would make nS Infinity and hang the tab (or
+    // NaN and fall through as a zero-cell wall) — an empty cell list is
+    // the loud, checkable answer either way (commitWall refuses it).
+    if (!Number.isFinite(length)) return [];
     const nS = Math.max(2, Math.ceil(length / (dx * 0.5)) + 1);
     const seen = new Set();
     const cells = [];
     for (let s = 0; s < nS; s++) {
         const t = s / (nS - 1);
-        const fi = Math.round((w.x0 + (w.x1 - w.x0) * t - xmin) / dx);
-        const fj = Math.round((w.y0 + (w.y1 - w.y0) * t - ymin) / dx);
+        // rnd = half-to-EVEN (routing.js), matching the desktop's
+        // np.round in seawall.py _cells — Math.round is half-UP, and at
+        // an exact .5 the two engines would put the same wall in
+        // DIFFERENT bed columns (verified: x = -59414.0625 on the
+        // canonical grid is a tie). Same landmine-removal as routing.
+        const fi = rnd((w.x0 + (w.x1 - w.x0) * t - xmin) / dx);
+        const fj = rnd((w.y0 + (w.y1 - w.y0) * t - ymin) / dx);
         if (fi < 0 || fi >= n || fj < 0 || fj >= n) continue;
         const flat = fj * n + fi;
         if (!seen.has(flat)) {
@@ -123,6 +134,7 @@ export function describeWall(w, quote) {
 /** Compact $M formatter for budget strings (walls price in the
  *  $10M-$300M range; sub-$1M walls are display noise, show <$1M). */
 export function fmtM(v) {
+    if (v < 0) return `-${fmtM(-v)}`;   // overdrawn pot reads "-$12M left"
     if (v < 1e6 && v > 0) return "<$1M";
     return `$${Math.round(v / 1e6)}M`;
 }

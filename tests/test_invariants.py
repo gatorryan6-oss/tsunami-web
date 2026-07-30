@@ -198,19 +198,50 @@ def test_defenses_are_app_layer_only():
         "site/js/defenses.js missing (M15)"
     for name in ("solver.js", "scenario.js", "hazard.js",
                  "wavemaker.js", "sim.js", "parity.js", "contract.js"):
-        text = read(os.path.join(jsdir, name))
-        assert "defenses" not in text, (
+        # Case-insensitive: `import { applyDefenses }` contains only
+        # "Defenses" and would sail through a lowercase substring check
+        # (review-caught test gap).
+        text = read(os.path.join(jsdir, name)).lower()
+        assert "defense" not in text, (
             f"{name} references the defense module — walls must stay an "
             f"app-layer bed edit")
+    # The actual canon guard: applyDefenses must copy the pristine bed,
+    # never edit it in place (scenarioData.bed is frozen reference data
+    # shared by every rebuild). Same style as the FROZEN_CONSTANTS pins.
+    dtext = read(os.path.join(jsdir, "defenses.js"))
+    assert "Float32Array.from(pristineBed)" in dtext, (
+        "applyDefenses no longer copies the pristine bed before applying "
+        "walls — an in-place edit would corrupt the frozen scenario bed "
+        "for the whole session")
     # (No shader check needed here: test_shader_is_verbatim_port already
     # pins every physics shader line-for-line to the frozen originals.)
 
 
 def test_defense_pricing_is_desktop_mirror():
-    """The web seawall's numbers are the DESKTOP's numbers (canonical):
-    cost rate 2500 $/m/m (core/defenses/seawall.py COST_RATE) and the
-    $250M pot (app/main.py SCENARIO_BUDGET_USD). If a rate needs tuning,
-    tune the desktop first, then mirror it here."""
+    """The web seawall mirrors the DESKTOP implementation (canonical:
+    core/defenses/seawall.py + app/main.py). Pin the ALGORITHM's load-
+    bearing lines, not just the constants — per-cell pricing would
+    re-introduce the ~29% diagonal-wall exploit both codebases document,
+    and a changed sampling step or rounding rule moves which bed cells a
+    wall occupies. If any of this needs tuning, tune the desktop first,
+    then mirror it here."""
     text = read(os.path.join(SITE, "js", "defenses.js"))
-    assert "SEAWALL_COST_RATE = 2_500.0" in text, "cost rate drifted"
-    assert "BUDGET_TOTAL_USD = 250e6" in text, "budget pot drifted"
+    pins = [
+        # constants (desktop COST_RATE / SCENARIO_BUDGET_USD)
+        ("SEAWALL_COST_RATE = 2_500.0", "cost rate drifted"),
+        ("BUDGET_TOTAL_USD = 250e6", "budget pot drifted"),
+        # dx/2 sampling so no cell on the segment is skipped
+        ("length / (dx * 0.5)", "cell-sampling step drifted from dx/2"),
+        # mean built height x TRUE length x rate (not per-cell pricing)
+        ("(builtSum / cells.length) * wallLength(w) * SEAWALL_COST_RATE",
+         "pricing formula drifted from mean-built-height x true length"),
+        # half-to-even cell rounding, matching desktop np.round
+        ('import { rnd } from "./routing.js"',
+         "wallCells no longer uses the half-even rounder (np.round "
+         "parity: Math.round is half-up and lands ties one cell over)"),
+        # apply raises with max(), never lowers
+        ("bed[c] = Math.max(bed[c], w.crest)",
+         "applyWall no longer raises-with-max"),
+    ]
+    for needle, why in pins:
+        assert needle in text, f"defenses.js: {why} (missing: {needle!r})"

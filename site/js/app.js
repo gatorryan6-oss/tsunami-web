@@ -13,8 +13,9 @@ import { assessCasualties, nearestRefuges, defaultEvacuationParams } from "./cas
 import { planEvacuation } from "./routing.js";
 import { evacTimingFor, SCENARIO_EVENTS } from "./events.js";
 import { SCENARIO_RATE, returnPeriodYr, annualize, EWS_COST_USD, fmtUsd } from "./economy.js";
-import { BUDGET_TOTAL_USD, applyDefenses, wallCost, wallLength,
-         describeWall, fmtM } from "./defenses.js";
+import { BUDGET_TOTAL_USD, CREST_MIN_M, CREST_MAX_M, applyDefenses,
+         wallCells, wallCost, wallLength, describeWall, fmtM }
+    from "./defenses.js";
 import { OrbitCamera } from "./camera.js";
 import { Scene3D } from "./scene3d.js";
 import { HAZARD_FIELDS, FIELD_BY_KEY, rampCss, rampUniforms, legendLabels } from "./intensity.js";
@@ -132,6 +133,9 @@ async function main() {
     let defenseEpoch = 0;      // bumped on every wall change
     let designBed = null;      // pristine bed + walls (PRE-event) — quoting base
     let wallDraw = null;       // draw mode: null | {x0,y0}|{} (awaiting clicks)
+    let wallDown = null;       // press point of an in-progress drag gesture
+    let suppressClick = false; // eat the click that trails a handled press
+    let loadGen = 0;           // setScenario generation — stale loads abort
 
     // Hazard overlay (M9): null = off, else a HAZARD_FIELDS entry. Drives
     // BOTH the 2D map (display.frag branch) and the 3D terrain
@@ -452,42 +456,80 @@ async function main() {
             `<div class="wrow"><span class="wname">Seawall ${i + 1}</span>` +
             `<span>${describeWall(w, wallQuotes[i] ?? w._quote ?? 0)}</span>` +
             `<button class="wx" data-i="${i}" ` +
-            `title="Demolish this wall (full refund — the world rebuilds ` +
-            `without it)">✕ remove</button></div>`).join("");
+            `title="Demolish this wall — the world rebuilds without it ` +
+            `and the budget re-prices (a surviving wall that crossed it ` +
+            `may re-quote higher)">✕ remove</button></div>`).join("");
     }
 
-    /** Any wall change funnels through here: new defense epoch (stale-
-     *  marks the banked risk rows), then a full world rebuild — the same
-     *  path as the Reset button, so the event re-arms and the outcome
-     *  cards blank honestly. `message` lands on the status line AFTER
-     *  the rebuild's own status write. */
+    /** Status writes the running fps line must not stomp: frame()'s
+     *  telemetry writer runs EVERY frame while the sim runs, which used
+     *  to erase a budget refusal within ~16 ms of it appearing. Draw-
+     *  mode and defense messages go through here with a hold; frame()
+     *  respects it. Direct writers (scenario loading etc.) still win —
+     *  they represent newer state. */
+    let statusHoldUntil = 0;
+    function setStatus(msg, holdMs = 0) {
+        $("status").textContent = msg;
+        statusHoldUntil = holdMs ? performance.now() + holdMs : 0;
+    }
+
+    /** Any wall change funnels through here: the ledger was already
+     *  re-priced SYNCHRONOUSLY by the caller (replayDefenses), so this
+     *  only owns the new defense epoch (stale-marks the banked risk
+     *  rows) and the full world rebuild — the same path as the Reset
+     *  button, so the event re-arms and the outcome cards blank
+     *  honestly. `message` lands after the rebuild's own status write,
+     *  and only if this rebuild wasn't superseded by a newer load. */
     async function rebuildWorld(message) {
         defenseEpoch++;
-        await setScenario(sel.value);
-        $("status").textContent = message;
+        const gen = await setScenario(sel.value);
+        if (gen !== null && gen === loadGen) setStatus(message, 6000);
     }
 
-    /** Quote → gate on the pot → commit → rebuild. Returns true if the
-     *  wall was built. The refusal states are LOUD (status line), never
-     *  silent. */
+    /** Validate → quote → gate on the pot → commit → rebuild. Returns
+     *  true if the wall was built. Every refusal is LOUD (status line),
+     *  never silent. The ledger (walls/quotes/spent/designBed/panel)
+     *  updates synchronously HERE — a second commit issued while the
+     *  world rebuild is still fetching is gated against the true pot,
+     *  not the stale one (review-caught overdraw race). */
     function commitWall(w) {
-        if (!designBed || !townGrid) return false;
+        if (!designBed || !townGrid || !scenarioData) return false;
+        // Programmatic callers (window.__app.addWall) bypass the slider,
+        // so the bounds are enforced here. The crest cap is a modelling
+        // invariant, not taste: at >= 15 m a wall becomes refuge high
+        // ground and the evacuation router sends the town onto it.
+        if (![w.x0, w.y0, w.x1, w.y1, w.crest].every(Number.isFinite)) {
+            setStatus("⛔ wall rejected: coordinates and crest must be " +
+                      "finite numbers", 6000);
+            return false;
+        }
+        if (w.crest < CREST_MIN_M || w.crest > CREST_MAX_M) {
+            setStatus(`⛔ crest must be ${CREST_MIN_M}-${CREST_MAX_M} m — ` +
+                      `higher would count as refuge high ground, lower ` +
+                      `is not a wall`, 6000);
+            return false;
+        }
         if (wallLength(w) < townGrid.dx) {
-            $("status").textContent =
-                `too short — a wall must span at least one grid cell ` +
-                `(${townGrid.dx.toFixed(0)} m)`;
+            setStatus(`too short — a wall must span at least one grid ` +
+                      `cell (${townGrid.dx.toFixed(0)} m)`, 4000);
+            return false;
+        }
+        if (wallCells(w, townGrid).length === 0) {
+            setStatus("⛔ that wall lies outside the world — nothing to " +
+                      "build", 6000);
             return false;
         }
         const quote = wallCost(w, designBed, townGrid);
         if (quote > budgetRemaining() + 1e-6) {
-            $("status").textContent =
-                `⛔ can't afford it: that wall quotes ${fmtM(quote)} but only ` +
-                `${fmtM(budgetRemaining())} of the ${fmtM(BUDGET_TOTAL_USD)} ` +
-                `pot is left`;
+            setStatus(`⛔ can't afford it: that wall quotes ${fmtM(quote)} ` +
+                      `but only ${fmtM(budgetRemaining())} of the ` +
+                      `${fmtM(BUDGET_TOTAL_USD)} pot is left`, 6000);
             return false;
         }
         w._quote = quote;          // the replay self-check's reference price
         walls.push(w);
+        replayDefenses(townGrid);  // sync ledger: pot + designBed + quotes
+        renderDefensePanel();
         rebuildWorld(
             `🧱 seawall built (${describeWall(w, quote)}) — world rebuilt, ` +
             `press Run to face the wave with it`)
@@ -497,16 +539,25 @@ async function main() {
 
     function removeWall(i) {
         if (i < 0 || i >= walls.length) return;
-        const refund = wallQuotes[i] ?? walls[i]._quote ?? 0;
         walls.splice(i, 1);
+        // Re-price the survivors NOW (panel indices stay truthful for
+        // rapid follow-up clicks) — and report the honest ledger, not a
+        // promised "refund": a surviving wall that crossed this one was
+        // quoted cheaper on its raised ground and legitimately re-prices
+        // higher, so the pot can recover less than this wall's own cost.
+        replayDefenses(townGrid);
+        renderDefensePanel();
         rebuildWorld(
-            `seawall demolished — ${fmtM(refund)} refunded, world rebuilt`)
+            `seawall demolished — budget re-priced: ${fmtM(budgetSpent)} ` +
+            `spent, ${fmtM(budgetRemaining())} left`)
             .catch(e => fatal(e.message));
     }
 
     function clearWalls() {
         if (walls.length === 0) return;
         walls = [];
+        replayDefenses(townGrid);
+        renderDefensePanel();
         rebuildWorld("all seawalls demolished — full refund, world rebuilt")
             .catch(e => fatal(e.message));
     }
@@ -534,9 +585,14 @@ async function main() {
         wallDraw = {};                  // stage 1: waiting for the anchor
         canvas.style.cursor = "crosshair";
         $("buildwall").classList.add("arming");
-        $("status").textContent =
-            `🧱 seawall, crest ${$("crest").value} m — click in the town ` +
-            `close-up (top-left) where the wall STARTS (Esc cancels)`;
+        // Without the town there IS no close-up window — don't send the
+        // user hunting for one (top-left clicks would silently resolve
+        // through the main map into deep ocean).
+        const where = insetUV ? "in the town close-up (top-left)"
+                              : "on the map";
+        setStatus(`🧱 seawall, crest ${$("crest").value} m — click ` +
+                  `${where} where the wall STARTS, or press-drag-release ` +
+                  `to draw it in one stroke (Esc cancels)`);
     }
 
     /** Map a mouse event to world meters, as the exact inverse of the
@@ -553,13 +609,20 @@ async function main() {
      *  where the user can see it. Null until the grid exists. */
     function eventWorldPoint(e, lockView = null) {
         const r = canvas.getBoundingClientRect();
-        if (!r.width || !r.height) return null;
+        // clientWidth/clientLeft: the CONTENT box. getBoundingClientRect
+        // includes #view's 1px css border, so using r.width raw skews
+        // every click by up to ±1 px — ~40 m in the close-up, a visible
+        // systematic bias at its ~6 px-per-cell zoom (review-caught).
+        const iw = canvas.clientWidth, ih = canvas.clientHeight;
+        if (!iw || !ih) return null;
         // The overlay's css box is this canvas's box (both are inset:0 in
-        // #viewwrap), but insetRect() is expressed in the overlay's own
-        // css units — rescale in case a resize hasn't been synced yet.
-        const W = overlay.cssW || r.width, H = overlay.cssH || r.height;
-        return worldFromCss((e.clientX - r.left) * (W / r.width),
-                            (e.clientY - r.top) * (H / r.height), lockView);
+        // #viewwrap, both 1px-bordered), but insetRect() is expressed in
+        // the overlay's own css units — rescale in case a resize hasn't
+        // been synced yet.
+        const W = overlay.cssW || iw, H = overlay.cssH || ih;
+        return worldFromCss(
+            (e.clientX - r.left - canvas.clientLeft) * (W / iw),
+            (e.clientY - r.top - canvas.clientTop) * (H / ih), lockView);
     }
 
     /** The projection inverse itself, in overlay css pixels — split out
@@ -571,6 +634,12 @@ async function main() {
         const W = overlay.cssW, H = overlay.cssH;
         if (!W || !H) return null;
         const ir = insetUV ? overlay.insetRect() : null;
+        // A drag locked to the inset must NEVER silently fall through to
+        // the main-map inverse when the inset is unavailable — that
+        // would teleport the point ~40 km into deep ocean. Null is the
+        // honest answer (review-caught latent landmine; also guards
+        // probePoint(x, y, "inset") calls when the town failed to load).
+        if (lockView === "inset" && !ir) return null;
         const inInset = !!ir && cx >= ir.x && cx <= ir.x + ir.w &&
                                 cy >= ir.y && cy <= ir.y + ir.h;
         const view = lockView || (inInset ? "inset" : "main");
@@ -608,12 +677,59 @@ async function main() {
     let armed = false;
     let pendingFire = false;
 
+    /** The defense REPLAY (desktop replay_defenses): re-quote + re-apply
+     *  every wall in build order against the pristine bed, warn on drift
+     *  vs the price charged at commit, then ADOPT the honest re-quote as
+     *  the wall's new recorded price — exactly what the desktop does
+     *  (base.py: `d.quote_usd = quote` after the warning). Without the
+     *  adopt step, one legitimate re-price (remove a wall another wall
+     *  crossed) would make the drift alarm fire forever after, turning a
+     *  corruption detector into permanent noise. Updates the whole
+     *  ledger (designBed / wallQuotes / budgetSpent) SYNCHRONOUSLY, so
+     *  the budget gate and the panel are correct the moment a wall
+     *  changes — never only after the async world rebuild lands. */
+    function replayDefenses(grid) {
+        if (walls.length === 0) {
+            wallQuotes = [];
+            budgetSpent = 0;
+            designBed = scenarioData ? scenarioData.bed : null;
+            return designBed;
+        }
+        const d = applyDefenses(walls, scenarioData.bed, grid);
+        walls.forEach((w, i) => {
+            if (w._quote != null &&
+                Math.abs(d.quotes[i] - w._quote) >
+                    Math.max(1.0, 1e-3 * w._quote)) {
+                console.warn(
+                    `replay drift: wall ${i + 1} re-quotes ` +
+                    `${fmtM(d.quotes[i])} vs ${fmtM(w._quote)} charged ` +
+                    `at build time — the world charged one price and ` +
+                    `rebuilt at another (order-dependent pricing after ` +
+                    `a removal is the benign cause; anything else means ` +
+                    `the baseline world is not reproducing)`);
+            }
+            w._quote = d.quotes[i];    // adopt: the ledger tracks the world
+        });
+        wallQuotes = d.quotes;
+        budgetSpent = d.spent;
+        designBed = d.bed;
+        return d.bed;
+    }
+
     async function setScenario(id) {
+        // Generation guard: a newer setScenario supersedes this one at
+        // its await point. Without it, two interleaved loads (Reset
+        // double-click, wall rebuild racing a dropdown change) would
+        // EACH build a solver — the loser's ~30 MB of GL textures leaks
+        // and whichever finishes last wins the UI, not the newest.
+        const gen = ++loadGen;
         $("status").textContent = `loading ${id} ...`;
         pendingFire = false;           // cancels any not-yet-fired trigger
         exitWallDraw();                // a half-drawn wall dies with the world
         if (solver) { solver.release(); solver = null; }
-        scenarioData = await loadScenario(id);
+        const loaded = await loadScenario(id);
+        if (gen !== loadGen) return null;   // superseded — newer load owns the world
+        scenarioData = loaded;
         // M15: build the committed seawalls into this world BEFORE the
         // solver exists — the desktop replay contract (pristine bed +
         // walls in build order, quote-then-apply). scenarioData.bed is
@@ -622,32 +738,7 @@ async function main() {
         const g0 = scenarioData.params.grid;
         const grid = { n: g0.n, dx: g0.dx_m,
                        xmin: -g0.domain_m / 2, ymin: -g0.domain_m / 2 };
-        let bedForSolver = scenarioData.bed;
-        if (walls.length > 0) {
-            const d = applyDefenses(walls, scenarioData.bed, grid);
-            bedForSolver = d.bed;
-            wallQuotes = d.quotes;
-            budgetSpent = d.spent;
-            // Replay self-check (desktop base.py): the rebuild must
-            // re-quote each wall to what was charged when it was
-            // committed. Drift means the world is not reproducing —
-            // say so loudly, never paper over.
-            walls.forEach((w, i) => {
-                if (w._quote != null &&
-                    Math.abs(d.quotes[i] - w._quote) >
-                        Math.max(1.0, 1e-3 * w._quote)) {
-                    console.warn(
-                        `replay drift: wall ${i + 1} re-quotes ` +
-                        `${fmtM(d.quotes[i])} vs ${fmtM(w._quote)} charged ` +
-                        `at build time — the baseline world is not ` +
-                        `reproducing this wall exactly`);
-                }
-            });
-        } else {
-            wallQuotes = [];
-            budgetSpent = 0;
-        }
-        designBed = bedForSolver;      // PRE-event defended bed: quoting base
+        const bedForSolver = replayDefenses(grid) || scenarioData.bed;
         renderDefensePanel();
         solver = createSolverAtRest(
             gl, shaders,
@@ -733,6 +824,7 @@ async function main() {
             `Run triggers the event.`;
         $("desc").textContent = scenarioData.params.description;
         sizeScaleBar();
+        return gen;   // rebuildWorld gates its status write on this
     }
 
     function eventNarration(src) {
@@ -894,9 +986,14 @@ async function main() {
                 // the status line keeps the technical telemetry.
                 $("clockNum").textContent = fmtSimTime(solver.timeS);
                 $("clockSub").textContent = `running ×${sim.timeScale}`;
-                $("status").textContent =
-                    `${fpsShown} fps` +
-                    (steps >= 24 ? " · running below requested speed" : "");
+                // The fps telemetry runs EVERY frame — without these
+                // guards it erased every draw-mode prompt, live quote,
+                // and budget refusal within ~16 ms of it appearing.
+                if (!wallDraw && performance.now() >= statusHoldUntil) {
+                    $("status").textContent =
+                        `${fpsShown} fps` +
+                        (steps >= 24 ? " · running below requested speed" : "");
+                }
             }
         }
         requestAnimationFrame(frame);
@@ -1069,71 +1166,128 @@ async function main() {
         if (wallDraw) {                  // right-click = cancel the draw
             e.preventDefault();
             exitWallDraw();
-            $("status").textContent = "seawall drawing cancelled";
+            setStatus("seawall drawing cancelled", 2500);
         }
     });
 
     // ---- Seawall draw-mode listeners (M15) ---------------------------
+    // Two gestures share one state machine, both anchoring at the PRESS
+    // point (a natural press-drag-release used to anchor at the RELEASE,
+    // losing the user's intended start — review-caught):
+    //   click ... click   press anchors, release nearby is ignored, the
+    //                     line rubber-bands, a second click commits;
+    //   press-drag-release  release far from the press commits directly.
+    // Browsers fire a `click` at the mouseup spot after ANY same-element
+    // press/release pair, so handled presses set suppressClick.
     $("buildwall").addEventListener("click", () => {
         if (wallDraw) {
             exitWallDraw();
-            $("status").textContent = "seawall drawing cancelled";
+            setStatus("seawall drawing cancelled", 2500);
         } else {
             enterWallDraw();
         }
     });
+
+    /** Stage-2 shared live quote: rubber band + price on the status
+     *  line (mousemove and crest-slider changes both re-price). */
+    function quotePendingWall(w) {
+        overlay.setPendingWall(w);
+        const q = wallCost(w, designBed, townGrid);
+        const fits = q <= budgetRemaining() + 1e-6;
+        setStatus(
+            `🧱 ${(wallLength(w) / 1000).toFixed(1)} km, crest ` +
+            `${w.crest.toFixed(0)} m — ${fmtM(q)}` +
+            (fits ? ` (${fmtM(budgetRemaining())} in the pot)`
+                  : ` — ⛔ OVER BUDGET (${fmtM(budgetRemaining())} left)`));
+    }
+
     $("crest").addEventListener("input", () => {
         $("crestval").textContent = `${$("crest").value} m`;
-        // Re-prompt so the armed status line quotes the new height.
-        if (wallDraw && wallDraw.x0 === undefined) enterWallDraw();
-    });
-    canvas.addEventListener("click", (e) => {
-        if (!wallDraw || view3d || !townGrid || !designBed) return;
+        if (!wallDraw) return;
         if (wallDraw.x0 === undefined) {
-            const p = eventWorldPoint(e);
-            if (!p) return;
-            // The anchor's view owns the whole drag (see eventWorldPoint).
-            wallDraw = { x0: p.x, y0: p.y, view: p.view };
-            overlay.setPendingWall({ x0: p.x, y0: p.y });
-            $("status").textContent =
-                `🧱 now click where the wall ENDS — in the ` +
-                `${p.view === "inset" ? "close-up" : "big map"}, same as ` +
-                `the start (the line quotes live)`;
-            return;
+            enterWallDraw();   // re-prompt with the new height
+        } else if (overlay.pendingWall &&
+                   overlay.pendingWall.x1 !== undefined) {
+            // Keyboard slider changes mid-draw used to leave a stale
+            // price on screen while the commit charged the new crest.
+            quotePendingWall({ ...overlay.pendingWall,
+                               crest: parseFloat($("crest").value) });
         }
-        const p = eventWorldPoint(e, wallDraw.view);
-        if (!p) return;
+    });
+
+    function anchorWall(p) {
+        // The anchor's view owns the whole drag (see eventWorldPoint).
+        wallDraw = { x0: p.x, y0: p.y, view: p.view };
+        overlay.setPendingWall({ x0: p.x, y0: p.y });
+        setStatus(`🧱 drag or move to the far end — in the ` +
+                  `${p.view === "inset" ? "close-up" : "big map"}, same ` +
+                  `as the start (the line quotes live); click or release ` +
+                  `there to build`);
+    }
+
+    /** Second point chosen: commit if it makes a wall, else stay armed. */
+    function finishWall(p) {
         const w = { x0: wallDraw.x0, y0: wallDraw.y0, x1: p.x, y1: p.y,
                     crest: parseFloat($("crest").value) };
         if (wallLength(w) < townGrid.dx) {
-            $("status").textContent =
-                `too short — click at least ${townGrid.dx.toFixed(0)} m ` +
-                `(one grid cell) from the anchor`;
+            setStatus(`too short — pick a point at least ` +
+                      `${townGrid.dx.toFixed(0)} m (one grid cell) from ` +
+                      `the anchor`, 4000);
             return;                     // stay armed: pick a farther end
         }
         commitWall(w);                  // refusals report on the status line
         exitWallDraw();
+    }
+
+    canvas.addEventListener("mousedown", (e) => {
+        if (!wallDraw || view3d || e.button !== 0 ||
+            !townGrid || !designBed) return;
+        if (wallDraw.x0 !== undefined) return;   // stage 2 commits on click
+        const p = eventWorldPoint(e);
+        if (!p) return;
+        anchorWall(p);
+        wallDown = { sx: e.clientX, sy: e.clientY };
+    });
+    window.addEventListener("mouseup", (e) => {
+        if (e.button !== 0 || !wallDown) return;
+        const down = wallDown;
+        wallDown = null;
+        if (!wallDraw || wallDraw.x0 === undefined || view3d) return;
+        const moved = Math.hypot(e.clientX - down.sx, e.clientY - down.sy);
+        if (moved <= 5) {
+            suppressClick = true;   // plain click: anchor only, wait for end
+            return;
+        }
+        const p = eventWorldPoint(e, wallDraw.view);
+        if (p) finishWall(p);
+        suppressClick = true;       // eat the trailing click either way
+    });
+    canvas.addEventListener("click", (e) => {
+        if (suppressClick) { suppressClick = false; return; }
+        if (!wallDraw || view3d || !townGrid || !designBed) return;
+        if (wallDraw.x0 === undefined) {
+            // Fallback anchor path (synthetic clicks, keyboards): the
+            // normal flow anchors on mousedown above.
+            const p = eventWorldPoint(e);
+            if (p) anchorWall(p);
+            return;
+        }
+        const p = eventWorldPoint(e, wallDraw.view);
+        if (p) finishWall(p);
     });
     canvas.addEventListener("mousemove", (e) => {
         if (!wallDraw || wallDraw.x0 === undefined || view3d ||
             !townGrid || !designBed) return;
         const p = eventWorldPoint(e, wallDraw.view);
         if (!p) return;
-        const w = { x0: wallDraw.x0, y0: wallDraw.y0, x1: p.x, y1: p.y,
-                    crest: parseFloat($("crest").value) };
-        overlay.setPendingWall(w);
-        const q = wallCost(w, designBed, townGrid);
-        const fits = q <= budgetRemaining() + 1e-6;
-        $("status").textContent =
-            `🧱 ${(wallLength(w) / 1000).toFixed(1)} km, crest ` +
-            `${w.crest.toFixed(0)} m — ${fmtM(q)}` +
-            (fits ? ` (${fmtM(budgetRemaining())} in the pot)`
-                  : ` — ⛔ OVER BUDGET (${fmtM(budgetRemaining())} left)`);
+        quotePendingWall({ x0: wallDraw.x0, y0: wallDraw.y0,
+                           x1: p.x, y1: p.y,
+                           crest: parseFloat($("crest").value) });
     });
     window.addEventListener("keydown", (e) => {
         if (e.key === "Escape" && wallDraw) {
             exitWallDraw();
-            $("status").textContent = "seawall drawing cancelled";
+            setStatus("seawall drawing cancelled", 2500);
         }
     });
     $("defList").addEventListener("click", (e) => {
