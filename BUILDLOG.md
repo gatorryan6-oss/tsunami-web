@@ -1417,4 +1417,15 @@ save/restore hygiene; the inset inverse algebra (exact, verified to
 Verified after the fixes, fresh origin 5087: contract 32/32 (canon
 numbers identical), invariants 20/20 (strengthened), verify.py PASS,
 zero console errors through the entire hostile-probe gauntlet.
-COMMITTED, NOT PUSHED — held for the user (push auto-deploys).
+PUSHED + LIVE 2026-07-30 (user: "push it"): 257ad36 -> 9904e0b,
+auto-deployed to https://tsunami-web.pages.dev. VERIFIED ON THE DEPLOYED
+ORIGIN: contract 32/32; app.js 64,971 B matching the committed blob and
+stable across fetches; the hostile-probe gauntlet re-run live — Infinity
+coords, crest 20 m, and an off-domain wall all refused with their exact
+messages, and the overdraw race is closed on the deployed build ($185M
+charged synchronously, the second $376M wall refused against the true
+$65M remaining); zero console errors.
+(Rollout sampling bit again exactly as logged in M15a: the first
+single-fetch returned the OLD 56,680 B app.js while the stability loop
+was already serving 64,971 B. Poll until the byte count EQUALS the git
+blob's, then re-fetch before grepping.)
