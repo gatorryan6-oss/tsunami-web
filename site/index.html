@@ -88,16 +88,39 @@
   .card.warn .num { color: #f0a868; }
   .card.good .num { color: #7deda0; }
   /* Risk & cost: the economic step-back — annualized toll across every
-     event faced, and what the warning system buys per year. */
-  #risk {
+     event faced, and what the warning system buys per year. The M15
+     defenses panel shares the same visual language. */
+  #risk, #defense {
     width: min(92vw, 660px); margin: 4px 0 10px;
     background: #161d26; border: 1px solid #232f3c; border-radius: 8px;
     padding: 8px 12px 10px;
   }
-  #risk .rtitle {
+  #defense { margin-bottom: 0; }
+  #risk .rtitle, #defense .rtitle {
     font-size: 0.78rem; color: #b7c6d6; margin-bottom: 6px;
   }
-  #risk .rtitle b { color: #dce3ec; }
+  #risk .rtitle b, #defense .rtitle b { color: #dce3ec; }
+  #defBudget {
+    font-size: 0.78rem; color: #cdd7e2; font-variant-numeric: tabular-nums;
+  }
+  #defBudget b { color: #f0e2b0; }
+  #defBudget.broke b { color: #ff8f8f; }
+  #defList { margin-top: 4px; }
+  #defList .wrow {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 0.76rem; color: #cdd7e2; padding: 2px 0;
+    font-variant-numeric: tabular-nums;
+  }
+  #defList .wrow + .wrow { border-top: 1px solid #1c2530; }
+  #defList .wname { color: #e2ddce; }
+  #defList button.wx {
+    padding: 0 7px; font-size: 0.75rem; line-height: 1.5;
+    border-color: #4a3030; color: #d8a0a0; margin-left: auto;
+  }
+  #defList button.wx:hover { border-color: #a05050; }
+  #buildwall.arming { background: #3a3212; border-color: #e0c53d; color: #f0e2b0; }
+  /* Stale risk rows: banked before the last defense change — re-run. */
+  #risk td.stale { color: #6d7f92; }
   #risk table {
     width: 100%; border-collapse: collapse; font-size: 0.76rem;
     font-variant-numeric: tabular-nums;
@@ -156,6 +179,7 @@
   #mapkey .sw.street { border-top: 2px solid rgba(120,126,136,0.9); }
   #mapkey .sw.refuge { border-top: 2px dashed rgba(224,72,72,0.95); }
   #mapkey .sw.depth  { border-top: 1px solid rgba(255,255,255,0.55); }
+  #mapkey .sw.wall   { border-top: 3px solid rgba(226,221,206,0.95); }
   #scalebar .bar {
     height: 0; border-bottom: 3px solid #b7c6d6; position: relative;
   }
@@ -206,6 +230,14 @@
     </div>
   </div>
   <div class="cgroup">
+    <span class="gcap">Defend</span>
+    <div class="grow">
+      <button id="buildwall" title="Draw a seawall on the 2D map: click its two ends. The town pays for every meter of height that must be built above the existing ground.">🧱 Seawall</button>
+      <input id="crest" type="range" min="3" max="12" value="6" step="1" style="width: 70px;" title="Crest height: how tall the wall stands above sea level. A wave taller than the crest overtops it.">
+      <span id="crestval" style="font-size: 0.85rem; min-width: 2.6em;">6 m</span>
+    </div>
+  </div>
+  <div class="cgroup">
     <span class="gcap">Speed</span>
     <div class="grow">
       <input id="speed" type="range" min="1" max="240" value="30" step="1" style="width: 90px;">
@@ -233,6 +265,7 @@
     <div class="row"><span class="sw art"></span>evacuation arterial</div>
     <div class="row"><span class="sw street"></span>street grid</div>
     <div class="row"><span class="sw refuge"></span>15 m refuge line</div>
+    <div class="row"><span class="sw wall"></span>seawall</div>
     <div class="row"><span class="sw depth"></span>depth contours (50 · 130 · 500 · 1k · 2k · 3k m)</div>
   </div>
 </div>
@@ -263,6 +296,13 @@
     <div class="sub" id="evacSub">☀ day · no warning</div>
     <div class="sub" id="evacWhy">—</div>
   </div>
+</div>
+<div id="defense">
+  <div class="rtitle"><b>Defenses</b> — 🧱 draws a seawall on the map (two
+    clicks). Concrete is priced per meter of height actually built, from a
+    fixed pot.</div>
+  <div id="defBudget"></div>
+  <div id="defList"></div>
 </div>
 <div id="risk">
   <div class="rtitle"><b>Risk &amp; cost</b> — design for which wave? Risk is

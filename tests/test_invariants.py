@@ -184,3 +184,33 @@ def test_town_data_integrity():
     value = sum(types[b["t"]]["value_usd"] for b in bl)
     assert pop == summary["population_night"], "population != baked summary"
     assert value == summary["total_value_usd"], "value != baked summary"
+
+
+def test_defenses_are_app_layer_only():
+    """M15 seawalls are terrain EDITS, not physics: the frozen solver,
+    the scenario data path, and the physics shaders must never know the
+    defense module exists. A wall is applied to a COPY of the pristine
+    bed in app.js before the solver is constructed — if solver.js or
+    scenario.js ever imports defenses.js, the parity/accessor contracts
+    are no longer testing the shipped physics path."""
+    jsdir = os.path.join(SITE, "js")
+    assert os.path.exists(os.path.join(jsdir, "defenses.js")), \
+        "site/js/defenses.js missing (M15)"
+    for name in ("solver.js", "scenario.js", "hazard.js",
+                 "wavemaker.js", "sim.js", "parity.js", "contract.js"):
+        text = read(os.path.join(jsdir, name))
+        assert "defenses" not in text, (
+            f"{name} references the defense module — walls must stay an "
+            f"app-layer bed edit")
+    # (No shader check needed here: test_shader_is_verbatim_port already
+    # pins every physics shader line-for-line to the frozen originals.)
+
+
+def test_defense_pricing_is_desktop_mirror():
+    """The web seawall's numbers are the DESKTOP's numbers (canonical):
+    cost rate 2500 $/m/m (core/defenses/seawall.py COST_RATE) and the
+    $250M pot (app/main.py SCENARIO_BUDGET_USD). If a rate needs tuning,
+    tune the desktop first, then mirror it here."""
+    text = read(os.path.join(SITE, "js", "defenses.js"))
+    assert "SEAWALL_COST_RATE = 2_500.0" in text, "cost rate drifted"
+    assert "BUDGET_TOTAL_USD = 250e6" in text, "budget pot drifted"

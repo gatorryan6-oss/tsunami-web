@@ -13,6 +13,8 @@ import { assessCasualties, nearestRefuges, defaultEvacuationParams } from "./cas
 import { planEvacuation } from "./routing.js";
 import { evacTimingFor, SCENARIO_EVENTS } from "./events.js";
 import { SCENARIO_RATE, returnPeriodYr, annualize, EWS_COST_USD, fmtUsd } from "./economy.js";
+import { BUDGET_TOTAL_USD, applyDefenses, wallCost, wallLength,
+         describeWall, fmtM } from "./defenses.js";
 import { OrbitCamera } from "./camera.js";
 import { Scene3D } from "./scene3d.js";
 import { HAZARD_FIELDS, FIELD_BY_KEY, rampCss, rampUniforms, legendLabels } from "./intensity.js";
@@ -112,7 +114,24 @@ async function main() {
     // combos, so the annualized risk table re-prices instantly on any
     // toggle without re-running. Keyed by scenario id; accumulates across
     // scenarios (the "portfolio you build by facing each event").
+    // M15: each entry is stamped with the defenseEpoch it was priced
+    // under — a wall change makes older rows STALE (shown dimmed until
+    // that scenario is re-run), because the outcome was measured on a
+    // world that no longer exists.
     const riskBank = {};
+
+    // Buildable defenses (M15): the seawalls the town has committed to,
+    // in BUILD ORDER (order matters — a wall crossing another's raised
+    // ground was quoted cheaper). They are WORLD state, not scenario
+    // state: all three scenarios share one bed, so a wall stands in all
+    // of them. Any change rebuilds the world (desktop contract: apply()
+    // is destructive, removal = rebuild from the pristine bed).
+    let walls = [];            // [{x0,y0,x1,y1,crest}]
+    let wallQuotes = [];       // honest re-quote per wall, from applyDefenses
+    let budgetSpent = 0;       // sum of quotes
+    let defenseEpoch = 0;      // bumped on every wall change
+    let designBed = null;      // pristine bed + walls (PRE-event) — quoting base
+    let wallDraw = null;       // draw mode: null | {x0,y0}|{} (awaiting clicks)
 
     // Hazard overlay (M9): null = off, else a HAZARD_FIELDS entry. Drives
     // BOTH the 2D map (display.frag branch) and the 3D terrain
@@ -267,6 +286,7 @@ async function main() {
         };
         riskBank[scenarioData.id] = {
             loss: r.totalLoss,
+            epoch: defenseEpoch,   // the defense state this was priced under
             deaths: {
                 day: { warned: deathsFor(true, tqWarned.detection, tqWarned.tQuake),
                        unwarned: deathsFor(true, tqUnwarned.detection, tqUnwarned.tQuake) },
@@ -335,6 +355,7 @@ async function main() {
         const rows = [];
         let annDeaths = 0, annDeathsNoEws = 0, annDeathsEws = 0, annLoss = 0;
         let anyBanked = false;
+        let anyStale = false;
         for (const s of SCENARIOS) {
             const period = returnPeriodYr(s.id);
             const b = riskBank[s.id];
@@ -344,34 +365,56 @@ async function main() {
                           `<td class="dim" colspan="2">— run it —</td></tr>`);
                 continue;
             }
-            anyBanked = true;
+            // M15: banked before the last wall change — the world it was
+            // priced on no longer exists. Show it dimmed (still useful as
+            // the before/after comparison) but keep it OUT of the totals:
+            // summing two different worlds would be a fake number.
+            const stale = (b.epoch ?? 0) !== defenseEpoch;
             const mode = daytime ? "day" : "night";
             const dHere = b.deaths[mode][ewsOn ? "warned" : "unwarned"];
+            const perDeaths = Math.round(dHere).toLocaleString("en-US");
+            const annD = annualize(s.id, dHere);
+            const annDtxt = annD >= 0.1 ? annD.toFixed(1) : annD.toFixed(2);
+            if (stale) {
+                anyStale = true;
+                rows.push(
+                    `<tr><td class="stale">${name}</td>` +
+                    `<td class="stale">1 in ${period} yr</td>` +
+                    `<td class="stale">${perDeaths} · ${fmtUsd(b.loss)} ` +
+                    `(pre-change)</td>` +
+                    `<td class="stale">— re-run —</td></tr>`);
+                continue;
+            }
+            anyBanked = true;
             const dNoEws = b.deaths[mode].unwarned;
             const dEws = b.deaths[mode].warned;
             annDeaths += annualize(s.id, dHere);
             annDeathsNoEws += annualize(s.id, dNoEws);
             annDeathsEws += annualize(s.id, dEws);
             annLoss += annualize(s.id, b.loss);
-            const perDeaths = Math.round(dHere).toLocaleString("en-US");
-            const annD = annualize(s.id, dHere);
-            const annDtxt = annD >= 0.1 ? annD.toFixed(1) : annD.toFixed(2);
             rows.push(
                 `<tr><td>${name}</td><td>1 in ${period} yr</td>` +
                 `<td>${perDeaths} · ${fmtUsd(b.loss)}</td>` +
                 `<td>${annDtxt} · ${fmtUsd(annualize(s.id, b.loss))}</td></tr>`);
         }
         body.innerHTML = rows.join("");
+        const staleNote = anyStale
+            ? `<br><span class="dim">Defenses changed — dim rows were ` +
+              `priced on the old world; re-run them to re-price.</span>`
+            : "";
         if (!anyBanked) {
-            $("riskTotal").innerHTML =
-                `<span class="dim">Run each scenario to build your risk ` +
-                `profile — the annualized toll appears here.</span>`;
+            $("riskTotal").innerHTML = (anyStale
+                ? `<span class="dim">Defenses changed — re-run each ` +
+                  `scenario to re-price the risk on the new world.</span>`
+                : `<span class="dim">Run each scenario to build your risk ` +
+                  `profile — the annualized toll appears here.</span>`);
             $("riskEws").textContent = "";
             return;
         }
         $("riskTotal").innerHTML =
             `<b>Expected per year</b> (across events faced): ` +
-            `<b>${annDeaths.toFixed(1)}</b> deaths · <b>${fmtUsd(annLoss)}</b> loss`;
+            `<b>${annDeaths.toFixed(1)}</b> deaths · <b>${fmtUsd(annLoss)}</b> loss` +
+            staleNote;
         // The EWS cost-benefit: it cuts the annualized DEATHS (by fixing the
         // frequent regional), but never the property loss — warning saves
         // lives, not buildings.
@@ -382,6 +425,127 @@ async function main() {
             `<b>${annDeathsEws.toFixed(1)}/yr</b> ` +
             `(prevents ~${prevented.toFixed(1)} deaths a year). ` +
             `Property loss unchanged — warning saves lives, not buildings.`;
+    }
+
+    // ---- Buildable defenses (M15) ------------------------------------
+    // The desktop contract, kept: CHARGE BEFORE APPLY (a wall is quoted
+    // against the world as it stands, gated on the pot, then built) and
+    // REMOVAL IS A WORLD REBUILD (no undo — the world reloads pristine
+    // and the surviving walls re-apply in build order via setScenario).
+
+    function budgetRemaining() { return BUDGET_TOTAL_USD - budgetSpent; }
+
+    function renderDefensePanel() {
+        const bd = $("defBudget");
+        bd.innerHTML =
+            `Budget: <b>${fmtM(budgetSpent)}</b> spent of ` +
+            `${fmtM(BUDGET_TOTAL_USD)} · <b>${fmtM(budgetRemaining())}</b> left`;
+        bd.classList.toggle("broke", budgetRemaining() < 25e6);
+        const list = $("defList");
+        if (walls.length === 0) {
+            list.innerHTML =
+                `<div class="wrow"><span class="dim" style="font-style:italic">` +
+                `no defenses built — the whole pot is available</span></div>`;
+            return;
+        }
+        list.innerHTML = walls.map((w, i) =>
+            `<div class="wrow"><span class="wname">Seawall ${i + 1}</span>` +
+            `<span>${describeWall(w, wallQuotes[i] ?? w._quote ?? 0)}</span>` +
+            `<button class="wx" data-i="${i}" ` +
+            `title="Demolish this wall (full refund — the world rebuilds ` +
+            `without it)">✕ remove</button></div>`).join("");
+    }
+
+    /** Any wall change funnels through here: new defense epoch (stale-
+     *  marks the banked risk rows), then a full world rebuild — the same
+     *  path as the Reset button, so the event re-arms and the outcome
+     *  cards blank honestly. `message` lands on the status line AFTER
+     *  the rebuild's own status write. */
+    async function rebuildWorld(message) {
+        defenseEpoch++;
+        await setScenario(sel.value);
+        $("status").textContent = message;
+    }
+
+    /** Quote → gate on the pot → commit → rebuild. Returns true if the
+     *  wall was built. The refusal states are LOUD (status line), never
+     *  silent. */
+    function commitWall(w) {
+        if (!designBed || !townGrid) return false;
+        if (wallLength(w) < townGrid.dx) {
+            $("status").textContent =
+                `too short — a wall must span at least one grid cell ` +
+                `(${townGrid.dx.toFixed(0)} m)`;
+            return false;
+        }
+        const quote = wallCost(w, designBed, townGrid);
+        if (quote > budgetRemaining() + 1e-6) {
+            $("status").textContent =
+                `⛔ can't afford it: that wall quotes ${fmtM(quote)} but only ` +
+                `${fmtM(budgetRemaining())} of the ${fmtM(BUDGET_TOTAL_USD)} ` +
+                `pot is left`;
+            return false;
+        }
+        w._quote = quote;          // the replay self-check's reference price
+        walls.push(w);
+        rebuildWorld(
+            `🧱 seawall built (${describeWall(w, quote)}) — world rebuilt, ` +
+            `press Run to face the wave with it`)
+            .catch(e => fatal(e.message));
+        return true;
+    }
+
+    function removeWall(i) {
+        if (i < 0 || i >= walls.length) return;
+        const refund = wallQuotes[i] ?? walls[i]._quote ?? 0;
+        walls.splice(i, 1);
+        rebuildWorld(
+            `seawall demolished — ${fmtM(refund)} refunded, world rebuilt`)
+            .catch(e => fatal(e.message));
+    }
+
+    function clearWalls() {
+        if (walls.length === 0) return;
+        walls = [];
+        rebuildWorld("all seawalls demolished — full refund, world rebuilt")
+            .catch(e => fatal(e.message));
+    }
+
+    // Draw mode: 🧱 arms it (2D only — the map is the drawing surface);
+    // click 1 anchors, the mouse rubber-bands a live-quoted dashed line,
+    // click 2 commits. Esc or right-click cancels.
+    function exitWallDraw() {
+        wallDraw = null;
+        overlay.setPendingWall(null);
+        canvas.style.cursor = "";
+        $("buildwall").classList.remove("arming");
+    }
+
+    function enterWallDraw() {
+        if (view3d) setView3d(false);   // the map is the drawing surface
+        wallDraw = {};                  // stage 1: waiting for the anchor
+        canvas.style.cursor = "crosshair";
+        $("buildwall").classList.add("arming");
+        $("status").textContent =
+            `🧱 seawall, crest ${$("crest").value} m — click the map where ` +
+            `the wall STARTS (Esc cancels)`;
+    }
+
+    /** Map a mouse event to world meters through the main view's texel-
+     *  center mapping (the exact inverse of overlay uvOf). Returns null
+     *  for clicks inside the inset close-up — that window is a different
+     *  projection and a click there would land ~25x away from where the
+     *  user aimed. */
+    function eventWorldPoint(e) {
+        const r = canvas.getBoundingClientRect();
+        const px = e.clientX - r.left, py = e.clientY - r.top;
+        const ir = overlay.insetRect();
+        if (px >= ir.x && px <= ir.x + ir.w &&
+            py >= ir.y && py <= ir.y + ir.h) return null;
+        const g = townGrid;
+        const u = px / r.width, v = 1 - py / r.height;
+        return { x: g.xmin + (u * g.n - 0.5) * g.dx,
+                 y: g.ymin + (v * g.n - 0.5) * g.dx };
     }
 
     /** Blank the outcome cards for a fresh scenario (population persists —
@@ -404,10 +568,49 @@ async function main() {
     async function setScenario(id) {
         $("status").textContent = `loading ${id} ...`;
         pendingFire = false;           // cancels any not-yet-fired trigger
+        exitWallDraw();                // a half-drawn wall dies with the world
         if (solver) { solver.release(); solver = null; }
         scenarioData = await loadScenario(id);
-        solver = createSolverAtRest(gl, shaders, scenarioData,
-                                    { floatLinear });
+        // M15: build the committed seawalls into this world BEFORE the
+        // solver exists — the desktop replay contract (pristine bed +
+        // walls in build order, quote-then-apply). scenarioData.bed is
+        // frozen canon and is never touched; the solver gets a defended
+        // COPY and its at-rest fill leaves wall cells dry automatically.
+        const g0 = scenarioData.params.grid;
+        const grid = { n: g0.n, dx: g0.dx_m,
+                       xmin: -g0.domain_m / 2, ymin: -g0.domain_m / 2 };
+        let bedForSolver = scenarioData.bed;
+        if (walls.length > 0) {
+            const d = applyDefenses(walls, scenarioData.bed, grid);
+            bedForSolver = d.bed;
+            wallQuotes = d.quotes;
+            budgetSpent = d.spent;
+            // Replay self-check (desktop base.py): the rebuild must
+            // re-quote each wall to what was charged when it was
+            // committed. Drift means the world is not reproducing —
+            // say so loudly, never paper over.
+            walls.forEach((w, i) => {
+                if (w._quote != null &&
+                    Math.abs(d.quotes[i] - w._quote) >
+                        Math.max(1.0, 1e-3 * w._quote)) {
+                    console.warn(
+                        `replay drift: wall ${i + 1} re-quotes ` +
+                        `${fmtM(d.quotes[i])} vs ${fmtM(w._quote)} charged ` +
+                        `at build time — the baseline world is not ` +
+                        `reproducing this wall exactly`);
+                }
+            });
+        } else {
+            wallQuotes = [];
+            budgetSpent = 0;
+        }
+        designBed = bedForSolver;      // PRE-event defended bed: quoting base
+        renderDefensePanel();
+        solver = createSolverAtRest(
+            gl, shaders,
+            walls.length > 0 ? { ...scenarioData, bed: bedForSolver }
+                             : scenarioData,
+            { floatLinear });
         sim = new Simulation(solver, parseFloat($("speed").value));
         sim.paused = true;
         armed = true;
@@ -419,11 +622,10 @@ async function main() {
         refuges = null;            // new bed epoch: refuges recompute
         assessTick = 0;
         resetOutcomeCards();
+        townGrid = grid;   // same {n,dx,xmin,ymin} the defenses used
         if (town) {
-            const g = scenarioData.params.grid;
-            townGrid = { n: g.n, dx: g.dx_m,
-                         xmin: -g.domain_m / 2, ymin: -g.domain_m / 2 };
             overlay.setGrid(townGrid);
+            overlay.setWalls(walls);
             const win = computeInsetWindow(scenarioData.bed, townGrid, town);
             overlay.setWindow(win);
             insetUV = uvWindow(win, townGrid);
@@ -466,7 +668,17 @@ async function main() {
                          setOverlay: (k) => { setOverlay(k); draw(); },
                          getOverlay: () => (overlayField ? overlayField.key : null),
                          getOvRange: () => ovRange,
-                         triggerEvent: () => triggerEvent(0) };
+                         triggerEvent: () => triggerEvent(0),
+                         // M15 defenses (programmatic path = the UI path:
+                         // same quote gate, same world rebuild).
+                         addWall: (x0, y0, x1, y1, crest) =>
+                             commitWall({ x0, y0, x1, y1, crest }),
+                         removeWall, clearWalls,
+                         getWalls: () => walls.map(w => ({ ...w })),
+                         getBudget: () => ({ total: BUDGET_TOTAL_USD,
+                                             spent: budgetSpent,
+                                             remaining: budgetRemaining() }),
+                         getDefenseEpoch: () => defenseEpoch };
         // Overlay persists across scenarios (it's a display mode); refresh
         // its range/legend for the new solver's (empty) accumulator.
         if (overlayField) { refreshOverlayRange(); updateLegend(); }
@@ -720,6 +932,9 @@ async function main() {
         view3d = !!on;
         // Leaving the 3D scene leaves the beach with it.
         if (!view3d && beachView) exitBeachState();
+        // Entering 3D abandons a half-drawn wall (the map is the
+        // drawing surface).
+        if (view3d && wallDraw) exitWallDraw();
         document.body.classList.toggle("view3d", view3d);
         $("viewmode").textContent = view3d ? "2D map" : "3D view";
         if (view3d) {
@@ -806,6 +1021,78 @@ async function main() {
     }, { passive: false });
     canvas.addEventListener("contextmenu", (e) => {
         if (view3d) e.preventDefault();  // right-drag pans, no menu
+        if (wallDraw) {                  // right-click = cancel the draw
+            e.preventDefault();
+            exitWallDraw();
+            $("status").textContent = "seawall drawing cancelled";
+        }
+    });
+
+    // ---- Seawall draw-mode listeners (M15) ---------------------------
+    $("buildwall").addEventListener("click", () => {
+        if (wallDraw) {
+            exitWallDraw();
+            $("status").textContent = "seawall drawing cancelled";
+        } else {
+            enterWallDraw();
+        }
+    });
+    $("crest").addEventListener("input", () => {
+        $("crestval").textContent = `${$("crest").value} m`;
+        // Re-prompt so the armed status line quotes the new height.
+        if (wallDraw && wallDraw.x0 === undefined) enterWallDraw();
+    });
+    canvas.addEventListener("click", (e) => {
+        if (!wallDraw || view3d || !townGrid || !designBed) return;
+        const p = eventWorldPoint(e);
+        if (!p) {
+            $("status").textContent =
+                "draw on the main map, not the close-up window";
+            return;
+        }
+        if (wallDraw.x0 === undefined) {
+            wallDraw = { x0: p.x, y0: p.y };
+            overlay.setPendingWall({ x0: p.x, y0: p.y });
+            $("status").textContent =
+                "🧱 now click where the wall ENDS (the line quotes live)";
+            return;
+        }
+        const w = { x0: wallDraw.x0, y0: wallDraw.y0, x1: p.x, y1: p.y,
+                    crest: parseFloat($("crest").value) };
+        if (wallLength(w) < townGrid.dx) {
+            $("status").textContent =
+                `too short — click at least ${townGrid.dx.toFixed(0)} m ` +
+                `(one grid cell) from the anchor`;
+            return;                     // stay armed: pick a farther end
+        }
+        commitWall(w);                  // refusals report on the status line
+        exitWallDraw();
+    });
+    canvas.addEventListener("mousemove", (e) => {
+        if (!wallDraw || wallDraw.x0 === undefined || view3d ||
+            !townGrid || !designBed) return;
+        const p = eventWorldPoint(e);
+        if (!p) return;
+        const w = { x0: wallDraw.x0, y0: wallDraw.y0, x1: p.x, y1: p.y,
+                    crest: parseFloat($("crest").value) };
+        overlay.setPendingWall(w);
+        const q = wallCost(w, designBed, townGrid);
+        const fits = q <= budgetRemaining() + 1e-6;
+        $("status").textContent =
+            `🧱 ${(wallLength(w) / 1000).toFixed(1)} km, crest ` +
+            `${w.crest.toFixed(0)} m — ${fmtM(q)}` +
+            (fits ? ` (${fmtM(budgetRemaining())} in the pot)`
+                  : ` — ⛔ OVER BUDGET (${fmtM(budgetRemaining())} left)`);
+    });
+    window.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && wallDraw) {
+            exitWallDraw();
+            $("status").textContent = "seawall drawing cancelled";
+        }
+    });
+    $("defList").addEventListener("click", (e) => {
+        const btn = e.target.closest("button.wx");
+        if (btn) removeWall(parseInt(btn.dataset.i, 10));
     });
 
     // 3D keyboard controls: WASD / arrow keys glide the view across the

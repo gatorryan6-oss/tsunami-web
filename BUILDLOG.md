@@ -1163,3 +1163,76 @@ day/night and near-field-EWS lessons legible instead of mysterious.
 
 M13 POLISH ARC: M13b + M13c done; M13a colour variety still tabled.
 COMMITTED NOT PUSHED.
+
+## 2026-07-29 — M15: buildable seawall + construction budget
+
+The tabled "next economic dimension" (M11's note said "no construction
+game" — the user has now explicitly asked for the buildable version).
+Scope choices made by the user this session: SEAWALL ONLY (no
+breakwater/dune/evac-tower yet), DRAWN ON THE MAP (two clicks), FIXED
+POT (the desktop's $250M).
+
+- js/defenses.js (new): a faithful port of the desktop seawall
+  (core/defenses/seawall.py) — dx/2 cell sampling with out-of-domain
+  samples DROPPED, cost = mean built height x TRUE length x 2,500 $/m/m
+  (true length so a diagonal wall isn't ~29% cheaper), apply = raise
+  bed cells to crest with max(), never lower. BUDGET_TOTAL_USD = 250e6
+  (app/main.py SCENARIO_BUDGET_USD). Both numbers are pinned by a new
+  invariant test — tune the desktop first, then mirror.
+- The desktop defense CONTRACT is kept: CHARGE BEFORE APPLY (quote
+  against the world as it stands -> gate on the pot -> build) and
+  REMOVAL IS A WORLD REBUILD (no undo; any wall change reloads the
+  pristine scenario bed and re-applies survivors in build order via
+  setScenario — one path for build/remove/clear/reset). The replay
+  self-check re-quotes each wall on every rebuild and console.warns on
+  drift vs the price charged at commit (all three scenario beds are
+  byte-identical, verified by sha256, so quotes are scenario-stable).
+- Physics stays frozen: the wall is applied to a COPY of the pristine
+  bed BEFORE the solver is constructed (solver.js copies again; its
+  at-rest fill h=max(-b,0) leaves wall cells dry). scenarioData.bed is
+  never touched. New invariant test: solver/scenario/hazard/wavemaker/
+  sim/parity/contract must never reference defenses.js.
+- UI: 🧱 Seawall button + crest slider (3-12 m; capped BELOW the 15 m
+  refuge line so a wall can never masquerade as refuge high ground) in
+  a new Defend control group. Draw mode: click 1 anchors, the mouse
+  rubber-bands a dashed gold line with a LIVE quote on the status line
+  ("3.2 km, crest 6 m — $48M ($250M in the pot)" / "⛔ OVER BUDGET"),
+  click 2 commits; Esc/right-click cancels; clicks in the inset
+  close-up are rejected (different projection); entering 3D cancels.
+  Committed walls render as concrete-colored lines in both 2D views +
+  map key row; in 3D the raised bed IS the wall (terrain lifts from
+  the bed texture). Defenses panel: budget line + per-wall rows with
+  ✕ remove (full refund).
+- Risk table integration: each banked row is stamped with a
+  defenseEpoch; changing walls stale-marks old rows (dimmed,
+  "(pre-change) — re-run") and keeps them OUT of the totals — two
+  different worlds must never sum. The stale row doubles as the
+  before/after comparison.
+- THE LESSON, measured live (day/unwarned, t=3800s): scenario B
+  undefended = $71.8M loss, 26 collapses, ~541 dead; with a 9 km
+  crest-8 wall ($185M of the $250M pot) = $5M, 1 collapse, ~85 dead —
+  the wall ERASES the frequent regional. Same wall on scenario C: the
+  coseismic drop sinks the crest 8 -> 5.48 m (the wall subsides with
+  the land — Tōhoku's story) and the wave overtops: $422M loss, 691
+  collapses, ~3,013 dead (vs $620M/~4,517 undefended). It blunts the
+  monster, it does not stop it — "design for which wave?" now has a
+  build button.
+- Verified on fresh origin 5086: contract 32/32 (all canon numbers
+  identical — walls default off), parity PASS all three scenarios,
+  verify.py PASS, invariants 20/20 (2 new), zero console errors on
+  boot and through build/remove/clear/overtop cycles; gl.getError()==0
+  with a wall rendered. CAVEAT: this session's browser pane was
+  headless (0x0 layout, no compositing), so the click-path was
+  exercised with synthetic events at real page coordinates (all four
+  status stages + budget refusal correct) and the wall/preview
+  RENDERING is verified error-free but not eyeballed — user should
+  glance at the drawn wall + crosshair on the next visit.
+- NOT ported (deliberate): QoL index (web has no land-use zone map),
+  breakwater/dune/gate/vegetation/vertical-evac, maintenance, defense
+  persistence (walls are session state — a reload starts the design
+  fresh; the desktop's save/replay files are a later milestone if
+  wanted). EWS stays OUTSIDE the pot (it's a counterfactual toggle,
+  priced separately in the risk panel — unchanged M11 semantics).
+
+COMMITTED, NOT PUSHED (push auto-deploys tsunami-web.pages.dev — held
+for the user, same as always).

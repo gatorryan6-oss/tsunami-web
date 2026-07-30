@@ -101,6 +101,14 @@ const ROAD_COLOR = [
     "rgba(233,172,42,0.92)",  // arterial (evacuation route)
 ];
 
+// M15 seawalls: concrete-colored solid lines (committed walls) and a
+// dashed gold rubber band (the wall being drawn). Width tracks the
+// view scale like roads do, with a legibility floor.
+const WALL_WIDTH_M = 30.0;
+const WALL_COLOR = "rgba(226,221,206,0.95)";
+const WALL_EDGE = "rgba(20,24,30,0.9)";
+const PENDING_COLOR = "rgba(255,215,110,0.95)";
+
 export class TownOverlay {
     constructor(canvas) {
         this.canvas = canvas;
@@ -114,6 +122,12 @@ export class TownOverlay {
 
     setGrid(grid) { this.grid = grid; }
     setWindow(win) { this.win = win; }
+
+    /** M15: committed seawalls (array of {x0,y0,x1,y1,crest}) and the
+     *  one being drawn (same shape, or null). Display only — the walls'
+     *  physical reality is the bed edit made at scenario setup. */
+    setWalls(walls) { this.walls = walls || []; }
+    setPendingWall(w) { this.pendingWall = w || null; }
 
     /** Hand the overlay the CPU bed for contouring. Call at scenario
      *  setup AND whenever the bed is rewritten in place (scenario C's
@@ -234,6 +248,7 @@ export class TownOverlay {
         // the arterials stay visible leading inland to high ground.
         this._drawRoads(town, mainView, [0.4, 1.0, 1.6]);
         this._drawBuildings(town, mainView, colorOf);
+        this._drawWalls(mainView, /*withPending=*/true);
 
         if (!win) return;
         const rect = this.insetRect();
@@ -274,6 +289,7 @@ export class TownOverlay {
         // The close-up shows the full street grid the town is laid on.
         this._drawRoads(town, insetView, [0.9, 1.7, 2.6]);
         this._drawBuildings(town, insetView, colorOf, /*rings=*/true);
+        this._drawWalls(insetView, /*withPending=*/false);
         ctx.restore();
 
         // Inset chrome: border + label.
@@ -347,6 +363,56 @@ export class TownOverlay {
                 ctx.lineTo(bx, by);
             }
             ctx.stroke();
+        }
+        ctx.restore();
+    }
+
+    /** M15: stroke the seawalls through `view` — a dark under-stroke so
+     *  the concrete line reads against both pale sand and bright water,
+     *  then the concrete fill. The pending rubber band (main view only)
+     *  is dashed gold with a dot on its anchor. Few segments — no
+     *  caching needed. */
+    _drawWalls(view, withPending) {
+        const { ctx, grid } = this;
+        if (!grid) return;
+        const px = (x, y) => {
+            const q = uvOf(grid, x, y);
+            return view.px(q.u, q.v);
+        };
+        ctx.save();
+        ctx.lineCap = "round";
+        const walls = this.walls || [];
+        const w = Math.max(2.0, WALL_WIDTH_M * view.scale);
+        for (const seg of walls) {
+            const [ax, ay] = px(seg.x0, seg.y0);
+            const [bx, by] = px(seg.x1, seg.y1);
+            for (const [style, lw] of [[WALL_EDGE, w + 2.0],
+                                       [WALL_COLOR, w]]) {
+                ctx.strokeStyle = style;
+                ctx.lineWidth = lw;
+                ctx.beginPath();
+                ctx.moveTo(ax, ay);
+                ctx.lineTo(bx, by);
+                ctx.stroke();
+            }
+        }
+        const p = this.pendingWall;
+        if (withPending && p) {
+            const [ax, ay] = px(p.x0, p.y0);
+            ctx.fillStyle = PENDING_COLOR;
+            ctx.beginPath();
+            ctx.arc(ax, ay, 3.5, 0, Math.PI * 2);
+            ctx.fill();
+            if (p.x1 !== undefined) {
+                const [bx, by] = px(p.x1, p.y1);
+                ctx.strokeStyle = PENDING_COLOR;
+                ctx.lineWidth = 2.5;
+                ctx.setLineDash([7, 5]);
+                ctx.beginPath();
+                ctx.moveTo(ax, ay);
+                ctx.lineTo(bx, by);
+                ctx.stroke();
+            }
         }
         ctx.restore();
     }
