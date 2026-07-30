@@ -1299,4 +1299,21 @@ Verified on fresh origin 5086 (canvas had REAL layout this session —
 
 The big map still draws (long regional walls); nothing was removed.
 
-COMMITTED, NOT PUSHED — held for the user (push auto-deploys).
+PUSHED + LIVE 2026-07-29 (user: "push it"): 44f7a67 -> 428dc73,
+auto-deployed to https://tsunami-web.pages.dev. VERIFIED ON THE DEPLOYED
+ORIGIN: contract 32/32, app.js byte-identical to the committed blob
+(56,680 B) and stable over 4 fetches, probePoint round-trip EXACT
+(0.000 m) with view detection "inset", a wall built end-to-end raises
+the deployed bed to 7 m and prices at $114M of the $250M pot,
+gl.getError()==0, zero console errors.
+
+THIRD PAGES DEPLOY-CHECK GOTCHA (new, and the nastiest): DURING rollout
+separate requests hit DIFFERENT deployments, so a marker grep can pass
+and fail in the same minute (measured: app.js came back 53,952 B on one
+request and 56,680 B on the next; greps for worldFromCss/lockView
+returned 0 while probePoint returned 2 — from two different files).
+Fetch the asset ONCE to a file and grep THAT, then confirm the byte
+count is stable across a few fetches before believing any of it. The
+byte count to expect is the GIT BLOB's (`git show HEAD:path | wc -c`),
+not the working copy's — the working copy has CRLF here and reads
+~2.7 KB larger.
